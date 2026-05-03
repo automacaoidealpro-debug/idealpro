@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Zap, Send, Loader2, Check, X, AlertTriangle, Info, ChevronDown, ChevronUp, Image as ImageIcon, Mic, MicOff } from 'lucide-react'
+import { Zap, Send, Loader2, Check, AlertTriangle, Info, ChevronDown, ChevronUp, Image as ImageIcon, Mic, MicOff } from 'lucide-react'
+import { addLog } from '@/lib/action-log'
 import { cn } from '@/lib/utils'
 
 interface Creative {
@@ -170,11 +171,15 @@ export function ExecutionPanel({ accountId, accountName, campaigns, spend, resul
       })
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error || 'Erro na execução')
+      const msg = data.message || 'Executado com sucesso'
       setExecuted(prev => ({ ...prev, [action.id]: 'done' }))
-      setExecResults(prev => ({ ...prev, [action.id]: data.message || 'Executado com sucesso' }))
+      setExecResults(prev => ({ ...prev, [action.id]: msg }))
+      addLog({ accountId, accountName, action: action.description, result: 'ok', detail: msg })
     } catch (e) {
+      const errMsg = String(e)
       setExecuted(prev => ({ ...prev, [action.id]: 'error' }))
-      setExecResults(prev => ({ ...prev, [action.id]: String(e) }))
+      setExecResults(prev => ({ ...prev, [action.id]: errMsg }))
+      addLog({ accountId, accountName, action: action.description, result: 'error', detail: errMsg })
     }
   }
 

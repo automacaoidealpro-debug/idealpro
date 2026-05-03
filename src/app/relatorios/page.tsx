@@ -5,8 +5,10 @@ import { formatCurrency } from '@/lib/utils'
 import {
   RefreshCw, Users, ShoppingCart, MessageCircle, TrendingUp,
   FileText, Printer, Calendar, Copy, Check, ChevronDown, ChevronUp,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getTargets, AccountTarget } from '@/lib/account-targets'
 
 interface ReportRow {
   id: string
@@ -44,6 +46,7 @@ interface ReportData {
   totals: Totals
   period: string
   total_accounts: number
+  prev_totals?: Totals | null
 }
 
 const PERIODS = [
@@ -114,6 +117,43 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
+function WhatsAppButton({ narrative, whatsapp }: { narrative: string; whatsapp?: string }) {
+  const [toasted, setToasted] = useState(false)
+  const send = () => {
+    if (whatsapp) {
+      window.open(`https://wa.me/${whatsapp}?text=${encodeURIComponent(narrative)}`, '_blank')
+    } else {
+      navigator.clipboard.writeText(narrative)
+      setToasted(true)
+      setTimeout(() => setToasted(false), 2500)
+    }
+  }
+  return (
+    <button
+      onClick={send}
+      title={whatsapp ? 'Enviar no WhatsApp' : 'Copiar para colar no WhatsApp'}
+      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-50 hover:bg-green-100 text-green-700 rounded-lg transition-colors border border-green-200"
+    >
+      <MessageSquare className="w-3.5 h-3.5" />
+      {toasted ? 'Copiado!' : whatsapp ? 'WhatsApp' : 'Copiar p/ WA'}
+    </button>
+  )
+}
+
+// Period comparison arrow
+function ChangeArrow({ current, prev, lowerIsBetter }: { current: number; prev: number; lowerIsBetter?: boolean }) {
+  if (!prev || prev === 0) return null
+  const pct = ((current - prev) / prev) * 100
+  const improved = lowerIsBetter ? pct < 0 : pct > 0
+  const symbol = pct > 0 ? '▲' : '▼'
+  const absPct = Math.abs(pct).toFixed(1)
+  return (
+    <span className={cn('text-[10px] font-bold ml-1', improved ? 'text-green-600' : 'text-red-500')}>
+      {symbol} {absPct}%
+    </span>
+  )
+}
+
 const TYPE_CFG = {
   lead: { label: 'Lead', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: Users },
   ecommerce: { label: 'E-commerce', color: 'bg-green-50 text-green-700 border-green-200', icon: ShoppingCart },
@@ -137,6 +177,11 @@ export default function RelatoriosPage() {
   const [generatedAt, setGeneratedAt] = useState<Date | null>(null)
   const [view, setView] = useState<'narrative' | 'table'>('narrative')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [targets, setTargets] = useState<Record<string, AccountTarget>>({})
+
+  useEffect(() => {
+    setTargets(getTargets())
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -178,6 +223,8 @@ export default function RelatoriosPage() {
       return next
     })
   }
+
+  const prevTotals = data?.prev_totals
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -260,6 +307,28 @@ export default function RelatoriosPage() {
           )}
         </div>
 
+        {/* Send all via WhatsApp */}
+        {data && data.rows.length > 0 && (
+          <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-green-800">Enviar todos os relatórios</p>
+              <p className="text-xs text-green-600 mt-0.5">Relatório completo de todas as {data.rows.length} contas concatenado</p>
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <CopyButton text={allNarrative} />
+              <button
+                onClick={() => {
+                  window.open(`https://wa.me/?text=${encodeURIComponent(allNarrative)}`, '_blank')
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                WhatsApp
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* View toggle */}
         <div className="flex items-center gap-2 print:hidden">
           <button onClick={() => setView('narrative')}
@@ -290,7 +359,10 @@ export default function RelatoriosPage() {
                 </div>
                 <span className="text-xs text-gray-500">Investido</span>
               </div>
-              <p className="text-xl font-bold text-gray-900">{fmtC(data.totals.spend)}</p>
+              <p className="text-xl font-bold text-gray-900">
+                {fmtC(data.totals.spend)}
+                {prevTotals && <ChangeArrow current={data.totals.spend} prev={prevTotals.spend} lowerIsBetter />}
+              </p>
               <p className="text-xs text-gray-400 mt-1">{data.rows.length} contas com dados</p>
             </div>
             <div className="bg-white rounded-2xl border border-gray-200 p-4">
@@ -300,7 +372,10 @@ export default function RelatoriosPage() {
                 </div>
                 <span className="text-xs text-gray-500">Leads</span>
               </div>
-              <p className="text-xl font-bold text-blue-700">{fmt(data.totals.leads)}</p>
+              <p className="text-xl font-bold text-blue-700">
+                {fmt(data.totals.leads)}
+                {prevTotals && <ChangeArrow current={data.totals.leads} prev={prevTotals.leads} />}
+              </p>
               <p className="text-xs text-gray-400 mt-1">
                 {data.totals.leads > 0 ? `CPL médio: ${fmtC(data.totals.spend / data.totals.leads)}` : '—'}
               </p>
@@ -312,7 +387,10 @@ export default function RelatoriosPage() {
                 </div>
                 <span className="text-xs text-gray-500">Vendas</span>
               </div>
-              <p className="text-xl font-bold text-green-700">{fmt(data.totals.purchases)}</p>
+              <p className="text-xl font-bold text-green-700">
+                {fmt(data.totals.purchases)}
+                {prevTotals && <ChangeArrow current={data.totals.purchases} prev={prevTotals.purchases} />}
+              </p>
               <p className="text-xs text-gray-400 mt-1">
                 {data.totals.revenue > 0 ? `Receita: ${fmtC(data.totals.revenue)}` : data.totals.purchases > 0 ? `CPA: ${fmtC(data.totals.spend / data.totals.purchases)}` : '—'}
               </p>
@@ -324,11 +402,28 @@ export default function RelatoriosPage() {
                 </div>
                 <span className="text-xs text-gray-500">Conversas</span>
               </div>
-              <p className="text-xl font-bold text-purple-700">{fmt(data.totals.conversations)}</p>
+              <p className="text-xl font-bold text-purple-700">
+                {fmt(data.totals.conversations)}
+                {prevTotals && <ChangeArrow current={data.totals.conversations} prev={prevTotals.conversations} />}
+              </p>
               <p className="text-xs text-gray-400 mt-1">
                 {data.totals.conversations > 0 ? `Custo/conv: ${fmtC(data.totals.spend / data.totals.conversations)}` : '—'}
               </p>
             </div>
+          </div>
+        )}
+
+        {/* CPP comparison if prev available */}
+        {data && prevTotals && data.totals.results > 0 && prevTotals.results > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-3 flex items-center gap-3 text-sm">
+            <span className="text-gray-500">CPP médio:</span>
+            <span className="font-bold text-gray-900">{fmtC(data.totals.spend / data.totals.results)}</span>
+            <ChangeArrow
+              current={data.totals.spend / data.totals.results}
+              prev={prevTotals.spend / prevTotals.results}
+              lowerIsBetter
+            />
+            <span className="text-xs text-gray-400">vs período anterior ({fmtC(prevTotals.spend / prevTotals.results)})</span>
           </div>
         )}
 
@@ -360,6 +455,7 @@ export default function RelatoriosPage() {
               const TypeIcon = cfg.icon
               const narrative = generateNarrative(row, activePeriodLabel)
               const expanded = expandedRows.has(row.id)
+              const whatsapp = targets[row.id]?.whatsapp
 
               return (
                 <div key={row.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
@@ -379,7 +475,8 @@ export default function RelatoriosPage() {
                       </div>
                       <p className="text-xs text-gray-500 truncate">{narrative}</p>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                      <WhatsAppButton narrative={narrative} whatsapp={whatsapp} />
                       <CopyButton text={narrative} />
                       {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                     </div>

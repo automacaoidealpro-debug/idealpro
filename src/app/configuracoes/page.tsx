@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { Settings, Key, Globe, CheckCircle, XCircle, RefreshCw, Copy, Check, ShieldCheck } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Settings, Key, Globe, CheckCircle, XCircle, RefreshCw, Copy, Check, ShieldCheck, History, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getLogs, clearLogs, LogEntry } from '@/lib/action-log'
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -19,11 +20,30 @@ function CopyBtn({ text }: { text: string }) {
 
 interface ApiStatus { ok: boolean; detail: string }
 
+function formatLogTs(ts: number): string {
+  const d = new Date(ts)
+  const day = String(d.getDate()).padStart(2, '0')
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${day}/${month} às ${hh}:${mm}`
+}
+
 export default function ConfiguracoesPage() {
   const [metaStatus, setMetaStatus] = useState<ApiStatus | null>(null)
   const [googleStatus, setGoogleStatus] = useState<ApiStatus | null>(null)
   const [checkingMeta, setCheckingMeta] = useState(false)
   const [checkingGoogle, setCheckingGoogle] = useState(false)
+  const [logs, setLogs] = useState<LogEntry[]>([])
+
+  useEffect(() => {
+    setLogs(getLogs())
+  }, [])
+
+  const handleClearLogs = () => {
+    clearLogs()
+    setLogs([])
+  }
 
   const checkMeta = async () => {
     setCheckingMeta(true)
@@ -203,6 +223,54 @@ export default function ConfiguracoesPage() {
           <p className="text-[10px] text-gray-400 mt-3">
             Para alterar: acesse vercel.com → projeto idealpro → Settings → Environment Variables
           </p>
+        </div>
+
+        {/* Action History */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4 text-gray-500" />
+              <h2 className="font-bold text-gray-900 text-sm">Histórico de Execuções</h2>
+              <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{logs.length} registro{logs.length !== 1 ? 's' : ''}</span>
+            </div>
+            {logs.length > 0 && (
+              <button
+                onClick={handleClearLogs}
+                className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Limpar histórico
+              </button>
+            )}
+          </div>
+          {logs.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-6">Nenhuma ação executada ainda.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-80 overflow-y-auto">
+              {logs.slice(0, 20).map(entry => (
+                <div key={entry.id} className={cn(
+                  'flex items-start gap-3 p-2.5 rounded-xl border text-xs',
+                  entry.result === 'ok' ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'
+                )}>
+                  <span className={cn('flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center mt-0.5 text-[10px] font-bold',
+                    entry.result === 'ok' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                  )}>
+                    {entry.result === 'ok' ? '✓' : '✕'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-gray-900 truncate">{entry.accountName}</span>
+                      <span className="text-gray-400 text-[10px] flex-shrink-0">{formatLogTs(entry.ts)}</span>
+                    </div>
+                    <p className="text-gray-600 truncate mt-0.5">{entry.action}</p>
+                    {entry.detail && entry.detail !== 'Executado' && (
+                      <p className={cn('text-[10px] mt-0.5 truncate', entry.result === 'ok' ? 'text-green-600' : 'text-red-600')}>{entry.detail}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Deploy info */}

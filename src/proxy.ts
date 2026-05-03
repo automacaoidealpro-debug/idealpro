@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server'
 const SESSION_COOKIE = 'idealpro_auth'
 const SESSION_TOKEN = 'idealpro_autenticado_2024'
 
-const PUBLIC = ['/login', '/api/auth']
+const PUBLIC = ['/login', '/api/auth', '/onboarding', '/p/']
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl

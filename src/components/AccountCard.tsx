@@ -8,6 +8,7 @@ import { AlertTriangle, TrendingUp, Users, ShoppingCart, MessageCircle, Zap, Che
 interface AccountCardProps {
   account: ClientAccount
   onClick?: () => void
+  targetCpp?: number
 }
 
 const statusConfig = {
@@ -26,7 +27,7 @@ function ScoreBadge({ score }: { score: number }) {
   )
 }
 
-export function AccountCard({ account, onClick }: AccountCardProps) {
+export function AccountCard({ account, onClick, targetCpp }: AccountCardProps) {
   const router = useRouter()
   const status = statusConfig[account.status]
   const highAlerts = account.alerts.filter((a) => a.severity === 'high')
@@ -76,12 +77,28 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
             <p className="text-[10px] text-blue-400 mb-0.5">Mês</p>
             <p className="text-xs font-bold text-blue-700">{formatCurrency(account.monthlySpend)}</p>
           </div>
-          <div className={`rounded-lg p-2 text-center ${account.cpp > 100 ? 'bg-red-50' : 'bg-gray-50'}`}>
-            <p className={`text-[10px] mb-0.5 ${account.cpp > 100 ? 'text-red-400' : 'text-gray-400'}`}>CPP</p>
-            <p className={`text-xs font-bold ${account.cpp > 100 ? 'text-red-700' : 'text-gray-900'}`}>
-              {account.cpp > 0 ? formatCurrency(account.cpp) : '—'}
-            </p>
-          </div>
+          {(() => {
+            const cpp = account.cpp
+            let bg = 'bg-gray-50', labelColor = 'text-gray-400', valColor = 'text-gray-900'
+            if (targetCpp && cpp > 0) {
+              if (cpp <= targetCpp) { bg = 'bg-green-50'; labelColor = 'text-green-400'; valColor = 'text-green-700' }
+              else if (cpp <= targetCpp * 1.3) { bg = 'bg-yellow-50'; labelColor = 'text-yellow-500'; valColor = 'text-yellow-700' }
+              else { bg = 'bg-red-50'; labelColor = 'text-red-400'; valColor = 'text-red-700' }
+            } else if (!targetCpp && cpp > 100) {
+              bg = 'bg-red-50'; labelColor = 'text-red-400'; valColor = 'text-red-700'
+            }
+            return (
+              <div className={`rounded-lg p-2 text-center ${bg}`}>
+                <p className={`text-[10px] mb-0.5 ${labelColor}`}>CPP</p>
+                <p className={`text-xs font-bold ${valColor}`}>
+                  {cpp > 0 ? formatCurrency(cpp) : '—'}
+                </p>
+                {targetCpp && (
+                  <p className="text-[9px] text-gray-400 mt-0.5">Meta: {formatCurrency(targetCpp)}</p>
+                )}
+              </div>
+            )
+          })()}
         </div>
 
         {/* Conversions row */}

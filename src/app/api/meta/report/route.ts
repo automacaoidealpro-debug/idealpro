@@ -64,6 +64,60 @@ async function fetchInsights(accountId: string, datePreset: string, since?: stri
   return data.data?.[0] || null
 }
 
+function dateStr(d: Date): string {
+  return d.toISOString().split('T')[0]
+}
+
+function getPrevPeriodParams(period: string): { datePreset?: string; since?: string; until?: string } | null {
+  if (period === 'today') return { datePreset: 'yesterday' }
+  if (period === 'this_month') return { datePreset: 'last_month' }
+  if (period === 'this_week_sun_today') return { datePreset: 'last_week_sun_sat' }
+  if (period === 'last_7d') {
+    const now = new Date()
+    const until = new Date(now); until.setDate(until.getDate() - 7)
+    const since = new Date(now); since.setDate(since.getDate() - 14)
+    return { since: dateStr(since), until: dateStr(until) }
+  }
+  return null
+}
+
+async function fetchTotalsForAccounts(
+  accounts: { id: string }[],
+  datePreset: string,
+  since?: string,
+  until?: string
+): Promise<Record<string, number>> {
+  const settled = await Promise.allSettled(
+    accounts.map(async (acc) => {
+      try {
+        const ins = await fetchInsights(acc.id, datePreset, since, until)
+        const actions: Action[] = ins?.actions || []
+        const actionValues: Action[] = ins?.action_values || []
+        const spend = parseFloat(ins?.spend || '0')
+        const purchases = getBest(actions, PURCHASE_PRIORITY)
+        const leads = getBest(actions, LEAD_PRIORITY)
+        const conversations = getBest(actions, CONV_PRIORITY)
+        const revenue = getBest(actionValues, REVENUE_PRIORITY)
+        const results = getBest(actions, RESULT_PRIORITY)
+        return { spend, leads, purchases, conversations, revenue, results }
+      } catch {
+        return { spend: 0, leads: 0, purchases: 0, conversations: 0, revenue: 0, results: 0 }
+      }
+    })
+  )
+  return settled
+    .filter(r => r.status === 'fulfilled')
+    .map(r => (r as PromiseFulfilledResult<Record<string, number>>).value)
+    .reduce((acc, r) => ({
+      spend: acc.spend + r.spend,
+      leads: acc.leads + r.leads,
+      purchases: acc.purchases + r.purchases,
+      conversations: acc.conversations + r.conversations,
+      revenue: acc.revenue + r.revenue,
+      results: acc.results + r.results,
+    }), { spend: 0, leads: 0, purchases: 0, conversations: 0, revenue: 0, results: 0 })
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const period = searchParams.get('period') || 'this_month'
@@ -74,56 +128,60 @@ export async function GET(req: Request) {
     const rawAccounts = await getAllAccounts()
     const activeAccounts = rawAccounts.filter((a: { account_status: number }) => a.account_status === 1)
 
-    const settled = await Promise.allSettled(
-      activeAccounts.map(async (acc: { id: string; name: string }) => {
-        try {
-          const ins = await fetchInsights(acc.id, period, since, until)
-          const actions: Action[] = ins?.actions || []
-          const actionValues: Action[] = ins?.action_values || []
-          const spend = parseFloat(ins?.spend || '0')
+    const prevParams = getPrevPeriodParams(period)
 
-          // Primary per-category metrics — take the first non-zero priority type
-          // This matches Ads Manager: one canonical result per account, no CAPI double-count
-          const purchases    = getBest(actions, PURCHASE_PRIORITY)
-          const leads        = getBest(actions, LEAD_PRIORITY)
-          const conversations = getBest(actions, CONV_PRIORITY)
-          const addToCart    = Math.round(sumActions(actions, CART_TYPES))
-          const initiateCheckout = Math.round(sumActions(actions, CHECKOUT_TYPES))
-          const revenue      = getBest(actionValues, REVENUE_PRIORITY)
+    const [settled, prevTotals] = await Promise.all([
+      Promise.allSettled(
+        activeAccounts.map(async (acc: { id: string; name: string }) => {
+          try {
+            const ins = await fetchInsights(acc.id, period, since, until)
+            const actions: Action[] = ins?.actions || []
+            const actionValues: Action[] = ins?.action_values || []
+            const spend = parseFloat(ins?.spend || '0')
 
-          // "Results" = primary conversion metric, matching Ads Manager's Results column
-          const results = getBest(actions, RESULT_PRIORITY)
-          const cpp = results > 0 ? spend / results : 0
-          const type = detectType(leads, purchases, conversations)
+            const purchases    = getBest(actions, PURCHASE_PRIORITY)
+            const leads        = getBest(actions, LEAD_PRIORITY)
+            const conversations = getBest(actions, CONV_PRIORITY)
+            const addToCart    = Math.round(sumActions(actions, CART_TYPES))
+            const initiateCheckout = Math.round(sumActions(actions, CHECKOUT_TYPES))
+            const revenue      = getBest(actionValues, REVENUE_PRIORITY)
 
-          return {
-            id: acc.id,
-            name: acc.name,
-            type,
-            spend,
-            leads,
-            purchases,
-            conversations,
-            addToCart,
-            initiateCheckout,
-            revenue,
-            results,
-            cpp,
-            impressions: parseInt(ins?.impressions || '0'),
-            clicks: parseInt(ins?.clicks || '0'),
-            ctr: parseFloat(ins?.ctr || '0'),
-            reach: parseInt(ins?.reach || '0'),
+            const results = getBest(actions, RESULT_PRIORITY)
+            const cpp = results > 0 ? spend / results : 0
+            const type = detectType(leads, purchases, conversations)
+
+            return {
+              id: acc.id,
+              name: acc.name,
+              type,
+              spend,
+              leads,
+              purchases,
+              conversations,
+              addToCart,
+              initiateCheckout,
+              revenue,
+              results,
+              cpp,
+              impressions: parseInt(ins?.impressions || '0'),
+              clicks: parseInt(ins?.clicks || '0'),
+              ctr: parseFloat(ins?.ctr || '0'),
+              reach: parseInt(ins?.reach || '0'),
+            }
+          } catch {
+            return {
+              id: acc.id, name: acc.name, type: 'lead' as const,
+              spend: 0, leads: 0, purchases: 0, conversations: 0,
+              addToCart: 0, initiateCheckout: 0, revenue: 0,
+              results: 0, cpp: 0, impressions: 0, clicks: 0, ctr: 0, reach: 0,
+            }
           }
-        } catch {
-          return {
-            id: acc.id, name: acc.name, type: 'lead' as const,
-            spend: 0, leads: 0, purchases: 0, conversations: 0,
-            addToCart: 0, initiateCheckout: 0, revenue: 0,
-            results: 0, cpp: 0, impressions: 0, clicks: 0, ctr: 0, reach: 0,
-          }
-        }
-      })
-    )
+        })
+      ),
+      prevParams
+        ? fetchTotalsForAccounts(activeAccounts, prevParams.datePreset || 'last_month', prevParams.since, prevParams.until)
+        : Promise.resolve(null),
+    ])
 
     const rows = settled
       .filter(r => r.status === 'fulfilled')
@@ -143,7 +201,7 @@ export async function GET(req: Request) {
       clicks:        acc.clicks + r.clicks,
     }), { spend: 0, leads: 0, purchases: 0, conversations: 0, addToCart: 0, revenue: 0, results: 0, impressions: 0, clicks: 0 })
 
-    return NextResponse.json({ rows, totals, period, total_accounts: activeAccounts.length })
+    return NextResponse.json({ rows, totals, period, total_accounts: activeAccounts.length, prev_totals: prevTotals })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }

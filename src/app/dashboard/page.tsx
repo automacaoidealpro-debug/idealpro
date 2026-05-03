@@ -4,8 +4,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { ClientAccount } from '@/types/meta'
 import { AccountCard } from '@/components/AccountCard'
 import { SummaryBar } from '@/components/SummaryBar'
-import { RefreshCw, Search, Filter, LayoutGrid, List } from 'lucide-react'
+import { RefreshCw, Search, Filter, LayoutGrid, Settings2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getTargets, setTarget, AccountTarget } from '@/lib/account-targets'
 
 type FilterType = 'all' | 'active' | 'alerts' | 'no_pixel'
 
@@ -16,6 +17,10 @@ export default function DashboardPage() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<FilterType>('all')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [targets, setTargets] = useState<Record<string, AccountTarget>>({})
+  const [editTarget, setEditTarget] = useState<{ id: string; name: string } | null>(null)
+  const [targetCppInput, setTargetCppInput] = useState('')
+  const [targetWhatsappInput, setTargetWhatsappInput] = useState('')
 
   const fetchAccounts = useCallback(async () => {
     setLoading(true)
@@ -36,6 +41,27 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchAccounts()
   }, [fetchAccounts])
+
+  useEffect(() => {
+    setTargets(getTargets())
+  }, [])
+
+  const openEditTarget = (id: string, name: string) => {
+    const existing = targets[id]
+    setTargetCppInput(existing?.targetCpp ? String(existing.targetCpp) : '')
+    setTargetWhatsappInput(existing?.whatsapp || '')
+    setEditTarget({ id, name })
+  }
+
+  const saveTarget = () => {
+    if (!editTarget) return
+    const cpp = parseFloat(targetCppInput)
+    if (isNaN(cpp) || cpp <= 0) return
+    const newTarget: AccountTarget = { targetCpp: cpp, whatsapp: targetWhatsappInput.trim() || undefined }
+    setTarget(editTarget.id, newTarget)
+    setTargets(prev => ({ ...prev, [editTarget.id]: newTarget }))
+    setEditTarget(null)
+  }
 
   const filtered = accounts.filter((a) => {
     const matchSearch = a.name.toLowerCase().includes(search.toLowerCase())
@@ -151,8 +177,75 @@ export default function DashboardPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map((account) => (
-            <AccountCard key={account.id} account={account} />
+            <div key={account.id} className="relative group/card">
+              <AccountCard account={account} targetCpp={targets[account.id]?.targetCpp} />
+              <button
+                onClick={(e) => { e.stopPropagation(); openEditTarget(account.id, account.name) }}
+                title="Definir meta de CPP"
+                className="absolute top-2 right-8 opacity-0 group-hover/card:opacity-100 transition-opacity bg-white border border-gray-200 rounded-lg p-1 hover:bg-gray-50 shadow-sm z-10"
+              >
+                <Settings2 className="w-3.5 h-3.5 text-gray-500" />
+              </button>
+            </div>
           ))}
+        </div>
+      )}
+
+      {/* Target Modal */}
+      {editTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-gray-900">Meta de CPP — {editTarget.name}</h2>
+              <button onClick={() => setEditTarget(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Meta de CPP (R$)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={targetCppInput}
+                  onChange={e => setTargetCppInput(e.target.value)}
+                  placeholder="Ex: 50.00"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  WhatsApp do cliente (com DDI)
+                </label>
+                <input
+                  type="text"
+                  value={targetWhatsappInput}
+                  onChange={e => setTargetWhatsappInput(e.target.value)}
+                  placeholder="Ex: 5511999999999"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Usado para enviar relatórios pelo WhatsApp</p>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setEditTarget(null)}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveTarget}
+                disabled={!targetCppInput || parseFloat(targetCppInput) <= 0}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                Salvar meta
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { Zap, RefreshCw, AlertTriangle, TrendingDown, TrendingUp, DollarSign, Brain } from 'lucide-react'
+import { Zap, RefreshCw, AlertTriangle, TrendingDown, TrendingUp, DollarSign, Brain, MessageSquare } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
+import { getTargets, AccountTarget } from '@/lib/account-targets'
 
 interface Account {
   id: string
@@ -83,6 +84,11 @@ export default function OtimizacoesPage() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [targets, setTargets] = useState<Record<string, AccountTarget>>({})
+
+  useEffect(() => {
+    setTargets(getTargets())
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -169,7 +175,10 @@ export default function OtimizacoesPage() {
             <p className="text-sm text-gray-400 mt-1">Nenhuma otimização urgente nos últimos 7 dias</p>
           </div>
         ) : (
-          accountsWithAlerts.map(({ acc, alerts }) => (
+          accountsWithAlerts.map(({ acc, alerts }) => {
+            const whatsapp = targets[acc.id]?.whatsapp
+            const notifyMsg = `Olá! Identificamos alertas nas suas campanhas:\n${alerts.map(a => `• ${a.title}: ${a.detail}`).join('\n')}\nEntre em contato para ajustarmos.`
+            return (
             <div key={acc.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-gray-100">
                 <div className="min-w-0">
@@ -179,10 +188,21 @@ export default function OtimizacoesPage() {
                     {acc.cpp > 0 ? ` · CPP ${formatCurrency(acc.cpp)}` : ''}
                   </p>
                 </div>
-                <Link href={`/inteligencia/${acc.id}`} className="flex items-center gap-1.5 text-xs font-semibold text-purple-600 bg-purple-50 hover:bg-purple-100 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 ml-3">
-                  <Brain className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Analisar</span>
-                </Link>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                  {whatsapp && (
+                    <button
+                      onClick={() => window.open(`https://wa.me/${whatsapp}?text=${encodeURIComponent(notifyMsg)}`, '_blank')}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg transition-colors border border-green-200"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Notificar</span>
+                    </button>
+                  )}
+                  <Link href={`/inteligencia/${acc.id}`} className="flex items-center gap-1.5 text-xs font-semibold text-purple-600 bg-purple-50 hover:bg-purple-100 px-3 py-1.5 rounded-lg transition-colors">
+                    <Brain className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Analisar</span>
+                  </Link>
+                </div>
               </div>
               <div className="divide-y divide-gray-50">
                 {alerts.map((alert, i) => {
@@ -202,7 +222,8 @@ export default function OtimizacoesPage() {
                 })}
               </div>
             </div>
-          ))
+            )
+          })
         )}
       </div>
     </div>

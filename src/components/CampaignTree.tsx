@@ -67,6 +67,40 @@ function InsightPills({ ins, resultLabel, level }: InsightPillsProps) {
   )
 }
 
+// ─── Creative score ──────────────────────────────────────────────────────────
+function getAdScore(ins: AdInsightsFull | null): number | null {
+  if (!ins || ins.spend < 5) return null
+  let pts = 0
+  // CTR score (0-4 pts)
+  if (ins.ctr > 3) pts += 4
+  else if (ins.ctr > 2) pts += 3
+  else if (ins.ctr > 1) pts += 2
+  else if (ins.ctr >= 0.5) pts += 1
+  // Hook rate score (0-2 pts)
+  if (ins.hookRate > 0) {
+    if (ins.hookRate > 30) pts += 2
+    else if (ins.hookRate >= 15) pts += 1
+  }
+  // Results score (0-2 pts)
+  if (ins.results > 0) {
+    pts += 2
+    if (ins.costPerResult > 0 && ins.costPerResult < 50) pts += 1
+  }
+  // Normalize: max raw = 9, scale to 0-10
+  return Math.min(10, Math.round((pts / 9) * 10))
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  const colorClass = score >= 8 ? 'bg-green-100 text-green-700 border-green-200'
+    : score >= 5 ? 'bg-yellow-100 text-yellow-700 border-yellow-200'
+    : 'bg-red-100 text-red-700 border-red-200'
+  return (
+    <span className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0', colorClass)}>
+      Score {score}/10
+    </span>
+  )
+}
+
 // ─── Ad row ──────────────────────────────────────────────────────────────────
 interface AdRowProps {
   ad: {
@@ -92,7 +126,7 @@ function AdRow({ ad, resultLabel }: AdRowProps) {
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1.5">
+        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
           <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0',
             ad.effective_status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-300'
           )} />
@@ -100,6 +134,7 @@ function AdRow({ ad, resultLabel }: AdRowProps) {
           <span className="text-[10px] text-gray-400 flex-shrink-0">
             {ad.effective_status === 'ACTIVE' ? 'Ativo' : 'Pausado'}
           </span>
+          {(() => { const s = getAdScore(ad.insights); return s !== null ? <ScoreBadge score={s} /> : null })()}
         </div>
         {ad.insights ? (
           <InsightPills ins={ad.insights} resultLabel={resultLabel} level="ad" />
