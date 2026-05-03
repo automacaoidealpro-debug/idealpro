@@ -325,6 +325,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           metaGet(`/${sid}/insights`, { fields: INSIGHT_FIELDS, ...tp }).then(r => r.data?.[0]),
           metaGet(`/${sid}/ads`, {
             fields: 'id,name,effective_status,creative{thumbnail_url,name,body,title}',
+            filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }]),
             limit: '30',
           }).then(r => r.data || []),
         ])

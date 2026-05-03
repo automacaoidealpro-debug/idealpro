@@ -107,9 +107,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const timeParams = buildTimeParams(period, since, until)
 
   try {
-    // All ads in this adset
+    // Only active ads in this adset
     const adsData = await metaFetch(`/${adsetId}/ads`, {
       fields: 'id,name,status,effective_status,creative{id,name,thumbnail_url,body,title}',
+      filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }]),
       limit: '50',
     })
     const ads = adsData.data || []
