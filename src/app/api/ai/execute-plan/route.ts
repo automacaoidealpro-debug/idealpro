@@ -20,7 +20,7 @@ interface Campaign {
 }
 
 export async function POST(req: Request) {
-  const { instruction, accountId, accountName, campaigns, creatives, spend, resultLabel } = await req.json()
+  const { instruction, accountId, accountName, campaigns, creatives, spend, resultLabel, analysisSummary } = await req.json()
 
   const campaignList = (campaigns as Campaign[] || []).slice(0, 20).map((c: Campaign) =>
     `- ID: ${c.id} | ${c.name} | Status: ${c.status}${c.spend ? ` | Gasto: R$${c.spend.toFixed(2)}` : ''}${c.results ? ` | Resultados: ${c.results}` : ''}`
@@ -46,7 +46,10 @@ ${campaignList || 'Nenhuma campanha disponível'}
 CRIATIVOS DO CLIENTE NA PASTA:
 ${creativeList || 'Nenhum criativo cadastrado na pasta'}
 
-PEDIDO DO GESTOR:
+${analysisSummary ? `DIAGNÓSTICO DA IA (análise feita anteriormente):
+${analysisSummary}
+
+` : ''}PEDIDO DO GESTOR:
 ${instruction}
 
 Gere um plano de execução em JSON com esta estrutura exata:

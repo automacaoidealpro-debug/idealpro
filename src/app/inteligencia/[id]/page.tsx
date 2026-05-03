@@ -9,6 +9,7 @@ import {
   Users, Wrench, Play,
 } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
+import { ExecutionPanel } from '@/components/ExecutionPanel'
 
 interface ActionItem {
   id: string
@@ -123,6 +124,9 @@ export default function InteligenciaPage() {
   const [error, setError] = useState('')
   const [period, setPeriod] = useState('last_7d')
   const [filter, setFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all')
+  const [accountName, setAccountName] = useState('')
+  const [accountSpend, setAccountSpend] = useState(0)
+  const [resultType, setResultType] = useState('')
 
   const runAnalysis = useCallback(async () => {
     setStatus('fetching')
@@ -136,6 +140,10 @@ export default function InteligenciaPage() {
       const dataRes = await fetch(`/api/meta/account/${id}/full-analysis?period=${period}`)
       const data = await dataRes.json()
       if (data.error) throw new Error(data.error)
+
+      setAccountName(data.account?.name || id)
+      setAccountSpend(data.account?.insights?.spend || 0)
+      setResultType(data.account?.insights?.resultType || '')
 
       setStatus('analyzing')
       setStatusMsg('Analisando dados...')
@@ -356,6 +364,16 @@ export default function InteligenciaPage() {
         {/* Results */}
         {status === 'done' && analysis && (
           <>
+            {/* Execution Panel — logo após análise */}
+            <ExecutionPanel
+              accountId={id}
+              accountName={accountName || id}
+              campaigns={[]}
+              spend={accountSpend}
+              resultLabel={getResultLabel(resultType)}
+              analysisSummary={analysis.summary}
+            />
+
             {/* Score + Summary */}
             <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
               <div className="flex items-start gap-6">

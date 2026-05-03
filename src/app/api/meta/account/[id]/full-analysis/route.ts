@@ -266,6 +266,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try {
     // ── 1. All account-level calls in parallel ────────────────────────────────
     const [
+      accountInfo,
       campData, accountIns,
       genderBreak, ageBreak,
       platformBreak, posBreak,
@@ -273,6 +274,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       hourlyBreak, dailyData,
       deviceBreak,
     ] = await Promise.allSettled([
+      metaGet(`/${accountId}`, { fields: 'name' }),
       metaGet(`/${accountId}/campaigns`, {
         fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget,bid_strategy',
         filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }]),
@@ -295,6 +297,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       // device (mobile/desktop/tablet)
       metaGet(`/${accountId}/insights`, { fields: BREAKDOWN_FIELDS, breakdowns: 'impression_device', ...tp }).then(r => r.data).catch(() => []),
     ])
+
+    const accountName = accountInfo.status === 'fulfilled' ? (accountInfo.value.name as string) : accountId
 
     const campaigns: Record<string, unknown>[] =
       campData.status === 'fulfilled' ? (campData.value.data || []) : []
@@ -423,6 +427,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       period,
       account: {
         id: accountId,
+        name: accountName,
         insights: accountIns.status === 'fulfilled' ? processInsights(accountIns.value) : null,
         breakdowns: {
           gender:            genderBreak.status === 'fulfilled' ? processBreakdown(genderBreak.value, 'gender') : [],

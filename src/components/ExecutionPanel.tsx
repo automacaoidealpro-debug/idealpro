@@ -42,6 +42,7 @@ interface ExecutionPanelProps {
   campaigns: Campaign[]
   spend: number
   resultLabel: string
+  analysisSummary?: string
 }
 
 const RISK_CFG = {
@@ -63,7 +64,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 const STORE_KEY = 'idealpro_criativos'
 
-export function ExecutionPanel({ accountId, accountName, campaigns, spend, resultLabel }: ExecutionPanelProps) {
+export function ExecutionPanel({ accountId, accountName, campaigns, spend, resultLabel, analysisSummary }: ExecutionPanelProps) {
   const [open, setOpen] = useState(false)
   const [instruction, setInstruction] = useState('')
   const [plan, setPlan] = useState<Plan | null>(null)
@@ -91,7 +92,7 @@ export function ExecutionPanel({ accountId, accountName, campaigns, spend, resul
       const res = await fetch('/api/ai/execute-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction, accountId, accountName, campaigns, creatives, spend, resultLabel }),
+        body: JSON.stringify({ instruction, accountId, accountName, campaigns, creatives, spend, resultLabel, analysisSummary }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
