@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Zap, Send, Loader2, Check, X, AlertTriangle, Info, ChevronDown, ChevronUp, Image as ImageIcon } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Zap, Send, Loader2, Check, X, AlertTriangle, Info, ChevronDown, ChevronUp, Image as ImageIcon, Mic, MicOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Creative {
@@ -73,6 +73,62 @@ export function ExecutionPanel({ accountId, accountName, campaigns, spend, resul
   const [executed, setExecuted] = useState<Record<string, 'running' | 'done' | 'error'>>({})
   const [execResults, setExecResults] = useState<Record<string, string>>({})
   const [creatives, setCreatives] = useState<Creative[]>([])
+  const [recording, setRecording] = useState(false)
+  const [audioError, setAudioError] = useState('')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null)
+
+  const startRecording = useCallback(() => {
+    setAudioError('')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) {
+      setAudioError('Reconhecimento de voz não suportado. Use Chrome ou Safari.')
+      return
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rec: any = new SR()
+    rec.lang = 'pt-BR'
+    rec.continuous = true
+    rec.interimResults = true
+    rec.maxAlternatives = 1
+
+    let finalTranscript = instruction
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
+      let interim = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript
+        if (e.results[i].isFinal) {
+          finalTranscript += (finalTranscript && !finalTranscript.endsWith(' ') ? ' ' : '') + t
+        } else {
+          interim = t
+        }
+      }
+      setInstruction(finalTranscript + (interim ? ` ${interim}` : ''))
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onerror = (e: any) => {
+      if (e.error !== 'aborted') setAudioError(`Erro no microfone: ${e.error}`)
+      setRecording(false)
+    }
+
+    rec.onend = () => {
+      setInstruction(finalTranscript)
+      setRecording(false)
+    }
+
+    recognitionRef.current = rec
+    rec.start()
+    setRecording(true)
+  }, [instruction])
+
+  const stopRecording = useCallback(() => {
+    recognitionRef.current?.stop()
+    setRecording(false)
+  }, [])
 
   useEffect(() => {
     try {
@@ -166,9 +222,25 @@ export function ExecutionPanel({ accountId, accountName, campaigns, spend, resul
 
           {/* Instruction input */}
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-2">
-              O que você quer fazer nesta conta?
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-semibold text-gray-700">
+                O que você quer fazer nesta conta?
+              </label>
+              <button
+                type="button"
+                onClick={recording ? stopRecording : startRecording}
+                title={recording ? 'Parar gravação' : 'Falar instrução'}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+                  recording
+                    ? 'bg-red-500 text-white animate-pulse'
+                    : 'bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-600'
+                )}
+              >
+                {recording ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                {recording ? 'Parar' : 'Falar'}
+              </button>
+            </div>
             <textarea
               value={instruction}
               onChange={e => setInstruction(e.target.value)}
@@ -176,6 +248,15 @@ export function ExecutionPanel({ accountId, accountName, campaigns, spend, resul
               rows={4}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
             />
+            {recording && (
+              <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" />
+                Gravando... fale sua instrução em português
+              </p>
+            )}
+            {audioError && (
+              <p className="text-[10px] text-red-500 mt-1">{audioError}</p>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
