@@ -21,11 +21,14 @@ async function metaFetch(path: string, params: Record<string, string> = {}) {
   url.searchParams.set('access_token', TOKEN)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
   const res = await fetch(url.toString(), { cache: 'no-store' })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err?.error?.message || `Meta API ${res.status}`)
+  const text = await res.text()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let j: any
+  try { j = JSON.parse(text) } catch {
+    throw new Error(`Meta API HTTP ${res.status}: resposta inválida. ${text.slice(0, 120)}`)
   }
-  return res.json()
+  if (j?.error) throw new Error(j.error?.message || String(j.error))
+  return j
 }
 
 type ActionList = { action_type: string; value: string }[]
@@ -107,11 +110,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const timeParams = buildTimeParams(period, since, until)
 
   try {
-    // Only active ads in this adset
+    // Fetch all ads then filter active in JS (filtering param fails on some accounts)
     const adsData = await metaFetch(`/${adsetId}/ads`, {
       fields: 'id,name,status,effective_status,creative{id,name,thumbnail_url,body,title}',
-      filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }]),
-      limit: '50',
+      limit: '200',
     })
     const ads = adsData.data || []
 

@@ -20,11 +20,14 @@ async function metaFetch(path: string, params: Record<string, string> = {}) {
   url.searchParams.set('access_token', TOKEN)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
   const res = await fetch(url.toString(), { cache: 'no-store' })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err?.error?.message || `Meta API ${res.status}`)
+  const text = await res.text()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let j: any
+  try { j = JSON.parse(text) } catch {
+    throw new Error(`Meta API HTTP ${res.status}: resposta inválida. ${text.slice(0, 120)}`)
   }
-  return res.json()
+  if (j?.error) throw new Error(j.error?.message || String(j.error))
+  return j
 }
 
 // Build time params — either date_preset or time_range

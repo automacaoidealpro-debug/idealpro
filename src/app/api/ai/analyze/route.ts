@@ -463,11 +463,11 @@ export async function POST(req: Request) {
         const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
         const message = await anthropic.messages.create({
           model: 'claude-sonnet-4-6',
-          max_tokens: 6000,
+          max_tokens: 4000,
           system: SYSTEM_PROMPT,
           messages: [{
             role: 'user',
-            content: `Analise esta conta Meta Ads (período: ${data.period}):\n\n${JSON.stringify(data, null, 2)}`,
+            content: `Analise esta conta Meta Ads (período: ${data.period}):\n\n${JSON.stringify(data)}`,
           }],
         })
         const text = message.content[0].type === 'text' ? message.content[0].text : ''

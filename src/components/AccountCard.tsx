@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { ClientAccount } from '@/types/meta'
 import { formatCurrency } from '@/lib/utils'
-import { AlertTriangle, TrendingUp, Users, ShoppingCart, MessageCircle, Zap, ChevronRight } from 'lucide-react'
+import { AlertTriangle, TrendingUp, TrendingDown, Users, ShoppingCart, MessageCircle, Zap, ChevronRight } from 'lucide-react'
 
 interface AccountCardProps {
   account: ClientAccount
@@ -16,6 +16,19 @@ const statusConfig = {
   paused: { label: 'Pausado', dot: 'bg-yellow-400', border: 'border-l-yellow-400', text: 'text-yellow-600' },
   error: { label: 'Sem gasto', dot: 'bg-red-400', border: 'border-l-red-400', text: 'text-red-600' },
   no_campaigns: { label: 'Sem campanha', dot: 'bg-gray-300', border: 'border-l-gray-300', text: 'text-gray-400' },
+}
+
+function ChangeArrow({ current, prev, lowerIsBetter }: { current: number; prev: number; lowerIsBetter?: boolean }) {
+  if (!prev || prev === 0 || current === 0) return null
+  const pct = ((current - prev) / prev) * 100
+  const improved = lowerIsBetter ? pct < 0 : pct > 0
+  const absPct = Math.abs(pct).toFixed(0)
+  return (
+    <span className={`flex items-center gap-0.5 text-[9px] font-bold ${improved ? 'text-green-600' : 'text-red-500'}`}>
+      {improved ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+      {absPct}%
+    </span>
+  )
 }
 
 function ScoreBadge({ score }: { score: number }) {
@@ -76,6 +89,11 @@ export function AccountCard({ account, onClick, targetCpp }: AccountCardProps) {
           <div className="bg-blue-50 rounded-lg p-2 text-center">
             <p className="text-[10px] text-blue-400 mb-0.5">Mês</p>
             <p className="text-xs font-bold text-blue-700">{formatCurrency(account.monthlySpend)}</p>
+            {account.lastMonthSpend > 0 && (
+              <div className="flex justify-center mt-0.5">
+                <ChangeArrow current={account.monthlySpend} prev={account.lastMonthSpend} />
+              </div>
+            )}
           </div>
           {(() => {
             const cpp = account.cpp

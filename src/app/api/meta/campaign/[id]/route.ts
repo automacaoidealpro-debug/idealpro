@@ -22,11 +22,14 @@ async function metaFetch(path: string, params: Record<string, string> = {}) {
   url.searchParams.set('access_token', TOKEN)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
   const res = await fetch(url.toString(), { cache: 'no-store' })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err?.error?.message || `Meta API ${res.status}`)
+  const text = await res.text()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let j: any
+  try { j = JSON.parse(text) } catch {
+    throw new Error(`Meta API HTTP ${res.status}: resposta inválida. ${text.slice(0, 120)}`)
   }
-  return res.json()
+  if (j?.error) throw new Error(j.error?.message || String(j.error))
+  return j
 }
 
 type ActionList = { action_type: string; value: string }[]
@@ -142,57 +145,51 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const timeParams = buildTimeParams(period, since, until)
 
   try {
-    // Campaign info
-    const campaignInfo = await metaFetch(`/${campaignId}`, {
-      fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
-    })
+    // Fetch campaign info + adsets + campaign insights in parallel
+    const [campaignInfo, adsetsData, ciData] = await Promise.all([
+      metaFetch(`/${campaignId}`, {
+        fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
+      }).catch(() => ({})),
+      metaFetch(`/${campaignId}/adsets`, {
+        fields: 'id,name,status,effective_status,daily_budget,lifetime_budget',
+        limit: '100',
+      }).catch(() => ({ data: [] })),
+      metaFetch(`/${campaignId}/insights`, { fields: AD_FIELDS, ...timeParams })
+        .catch(() => ({ data: [] })),
+    ])
 
-    // All adsets for this campaign
-    const adsetsData = await metaFetch(`/${campaignId}/adsets`, {
-      fields: 'id,name,status,effective_status,daily_budget,lifetime_budget,targeting',
-      limit: '100',
-    })
-    const adsets = adsetsData.data || []
+    const adsets = (adsetsData.data || []) as { id: string; name: string; status: string; effective_status: string }[]
+    const campaignInsights = processInsights(ciData.data?.[0])
 
-    // Fetch insights for each adset in parallel
-    const adsetsWithInsights = await Promise.all(
-      adsets.map(async (adset: { id: string; name: string; status: string; effective_status: string }) => {
+    // Fetch insights for each adset, max 5 concurrent
+    let idx = 0
+    const adsetResults: { id: string; name: string; status: string; effective_status: string; insights: ReturnType<typeof processInsights> }[] =
+      new Array(adsets.length)
+    async function worker() {
+      while (idx < adsets.length) {
+        const i = idx++
+        const adset = adsets[i]
         try {
-          const ins = await metaFetch(`/${adset.id}/insights`, {
-            fields: AD_FIELDS,
-            ...timeParams,
-          })
-          return {
-            ...adset,
-            insights: processInsights(ins.data?.[0]),
-          }
+          const ins = await metaFetch(`/${adset.id}/insights`, { fields: AD_FIELDS, ...timeParams })
+          adsetResults[i] = { ...adset, insights: processInsights(ins.data?.[0]) }
         } catch {
-          return { ...adset, insights: null }
+          adsetResults[i] = { ...adset, insights: null }
         }
-      })
-    )
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(5, adsets.length) }, worker))
 
     // Sort: active first, then by spend
-    adsetsWithInsights.sort((a, b) => {
+    adsetResults.sort((a, b) => {
       if (a.effective_status === 'ACTIVE' && b.effective_status !== 'ACTIVE') return -1
       if (b.effective_status === 'ACTIVE' && a.effective_status !== 'ACTIVE') return 1
       return (b.insights?.spend || 0) - (a.insights?.spend || 0)
     })
 
-    // Campaign-level insights
-    let campaignInsights = null
-    try {
-      const ci = await metaFetch(`/${campaignId}/insights`, {
-        fields: AD_FIELDS,
-        ...timeParams,
-      })
-      campaignInsights = processInsights(ci.data?.[0])
-    } catch { /* ok */ }
-
     return NextResponse.json({
       campaign: campaignInfo,
       insights: campaignInsights,
-      adsets: adsetsWithInsights,
+      adsets: adsetResults,
       period,
     })
   } catch (e) {

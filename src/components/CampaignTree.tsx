@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { cn, formatCurrency, formatNumber } from '@/lib/utils'
 import { AdInsightsFull, CampaignItem } from '@/lib/optimizations'
-import { ChevronRight, ChevronDown, RefreshCw, Zap, Target, TrendingUp } from 'lucide-react'
+import { ChevronRight, ChevronDown, RefreshCw, Zap, Target, TrendingUp, AlertCircle } from 'lucide-react'
 
 // ─── Metric pill ──────────────────────────────────────────────────────────────
 function Pill({
@@ -159,23 +159,38 @@ function AdSetRow({ adset, resultLabel, period, since, until }: AdSetRowProps) {
   const [expanded, setExpanded] = useState(false)
   const [ads, setAds] = useState<AdRowProps['ad'][] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const expandedRef = useRef(false)
+  expandedRef.current = expanded
 
-  const loadAds = useCallback(async () => {
-    if (ads !== null) return
+  const fetchAds = useCallback(async () => {
     setLoading(true)
+    setLoadError(false)
     try {
       let url = `/api/meta/adset/${adset.id}?period=${period}`
       if (since && until) url += `&since=${since}&until=${until}`
       const r = await fetch(url)
       const d = await r.json()
+      if (d.error) throw new Error(d.error)
       setAds(d.ads || [])
-    } catch { setAds([]) }
-    finally { setLoading(false) }
-  }, [adset.id, period, since, until, ads])
+    } catch {
+      setAds([])
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [adset.id, period, since, until])
+
+  // When period/date changes: reset ads and re-fetch if the panel is open
+  useEffect(() => {
+    setAds(null)
+    setLoadError(false)
+    if (expandedRef.current) fetchAds()
+  }, [fetchAds])
 
   const toggle = () => {
     setExpanded(v => {
-      if (!v) loadAds()
+      if (!v) fetchAds()
       return !v
     })
   }
@@ -215,8 +230,14 @@ function AdSetRow({ adset, resultLabel, period, since, until }: AdSetRowProps) {
             <div className="flex items-center gap-2 px-4 py-3 text-xs text-gray-400">
               <RefreshCw className="w-3 h-3 animate-spin" />Carregando anúncios...
             </div>
+          ) : loadError ? (
+            <div className="flex items-center gap-2 px-4 py-3 text-xs text-red-500">
+              <AlertCircle className="w-3 h-3 flex-shrink-0" />
+              <span>Erro ao carregar anúncios.</span>
+              <button onClick={fetchAds} className="underline hover:text-red-700">Tentar novamente</button>
+            </div>
           ) : !ads || ads.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-gray-400">Nenhum anúncio</p>
+            <p className="px-4 py-3 text-xs text-gray-400">Nenhum anúncio ativo</p>
           ) : (
             <div>
               <div className="px-4 py-1.5 flex items-center gap-2 border-b border-gray-100">
@@ -251,17 +272,55 @@ const OBJ_LABELS: Record<string, string> = {
 }
 
 function CampaignCard({ campaign: c, resultLabel, period, since, until }: CampaignCardProps) {
-  const [expanded, setExpanded] = useState(true)
-  const objective = OBJ_LABELS[c.objective] || c.objective
+  const [expanded, setExpanded] = useState(false)
+  const [adsets, setAdsets] = useState<CampaignItem['adsets'] | null>(null)
+  const [loadingAdsets, setLoadingAdsets] = useState(false)
+  const expandedRef = useRef(false)
+  expandedRef.current = expanded
 
-  const totalResults = c.adsets.reduce((s, a) => s + (a.insights?.results || 0), 0)
+  const objective = OBJ_LABELS[c.objective] || c.objective
   const totalSpend = c.insights?.spend || 0
+  const totalResults = c.insights?.results || 0
+
+  const fetchAdsets = useCallback(async () => {
+    setLoadingAdsets(true)
+    try {
+      let url = `/api/meta/campaign/${c.id}?period=${period}`
+      if (since && until) url += `&since=${since}&until=${until}`
+      const r = await fetch(url)
+      const d = await r.json()
+      const sorted = (d.adsets || []).sort(
+        (a: CampaignItem['adsets'][0], b: CampaignItem['adsets'][0]) =>
+          (b.insights?.spend || 0) - (a.insights?.spend || 0)
+      )
+      setAdsets(sorted)
+    } catch {
+      setAdsets([])
+    } finally {
+      setLoadingAdsets(false)
+    }
+  }, [c.id, period, since, until])
+
+  // Reset and re-fetch when period/date changes
+  useEffect(() => {
+    setAdsets(null)
+    if (expandedRef.current) fetchAdsets()
+  }, [fetchAdsets])
+
+  const toggle = () => {
+    setExpanded(v => {
+      if (!v) fetchAdsets()
+      return !v
+    })
+  }
+
+  const displayedAdsets = adsets ?? []
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
       {/* Campaign header */}
       <button
-        onClick={() => setExpanded(v => !v)}
+        onClick={toggle}
         className="w-full flex items-start gap-3 p-4 hover:bg-blue-50/30 transition-colors text-left"
       >
         {/* Expand icon */}
@@ -279,9 +338,11 @@ function CampaignCard({ campaign: c, resultLabel, period, since, until }: Campai
             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
               {objective}
             </span>
-            <span className="text-xs text-gray-400 ml-auto flex-shrink-0">
-              {c.adsets.length} conjunto{c.adsets.length !== 1 ? 's' : ''} ativos
-            </span>
+            {adsets !== null && (
+              <span className="text-xs text-gray-400 ml-auto flex-shrink-0">
+                {displayedAdsets.length} conjunto{displayedAdsets.length !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
           {c.insights
             ? <InsightPills ins={c.insights} resultLabel={resultLabel} level="campaign" />
@@ -301,7 +362,6 @@ function CampaignCard({ campaign: c, resultLabel, period, since, until }: Campai
       {/* AdSets */}
       {expanded && (
         <div className="border-t border-gray-100">
-          {/* AdSets header */}
           <div className="flex items-center gap-2 px-5 py-2 bg-gray-50 border-b border-gray-100">
             <Target className="w-3.5 h-3.5 text-indigo-400" />
             <span className="text-[11px] font-semibold text-indigo-600 uppercase tracking-wider">
@@ -310,10 +370,15 @@ function CampaignCard({ campaign: c, resultLabel, period, since, until }: Campai
             <span className="text-[10px] text-gray-400 ml-1">— clique para ver anúncios</span>
           </div>
 
-          {c.adsets.length === 0 ? (
-            <p className="px-5 py-4 text-sm text-gray-400">Nenhum conjunto ativo</p>
+          {loadingAdsets ? (
+            <div className="flex items-center gap-2 px-5 py-4 text-xs text-gray-400">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              Carregando conjuntos...
+            </div>
+          ) : displayedAdsets.length === 0 ? (
+            <p className="px-5 py-4 text-sm text-gray-400">Nenhum conjunto encontrado</p>
           ) : (
-            c.adsets.map(s => (
+            displayedAdsets.map(s => (
               <AdSetRow
                 key={s.id}
                 adset={s}

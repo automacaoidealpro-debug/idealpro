@@ -52,7 +52,7 @@ function detectType(leads: number, purchases: number, conversations: number): 'l
 async function fetchInsights(accountId: string, datePreset: string, since?: string, until?: string) {
   const url = new URL(`${BASE_URL}/${accountId}/insights`)
   url.searchParams.set('access_token', TOKEN!)
-  url.searchParams.set('fields', 'spend,impressions,clicks,reach,ctr,cpm,cpp,actions,action_values,cost_per_action_type')
+  url.searchParams.set('fields', 'spend,impressions,clicks,reach,ctr,cpm,cpp,frequency,actions,action_values,cost_per_action_type')
   url.searchParams.set('level', 'account')
   if (since && until) {
     url.searchParams.set('time_range', JSON.stringify({ since, until }))
@@ -167,13 +167,14 @@ export async function GET(req: Request) {
               clicks: parseInt(ins?.clicks || '0'),
               ctr: parseFloat(ins?.ctr || '0'),
               reach: parseInt(ins?.reach || '0'),
+              frequency: parseFloat(ins?.frequency || '0'),
             }
           } catch {
             return {
               id: acc.id, name: acc.name, type: 'lead' as const,
               spend: 0, leads: 0, purchases: 0, conversations: 0,
               addToCart: 0, initiateCheckout: 0, revenue: 0,
-              results: 0, cpp: 0, impressions: 0, clicks: 0, ctr: 0, reach: 0,
+              results: 0, cpp: 0, impressions: 0, clicks: 0, ctr: 0, reach: 0, frequency: 0,
             }
           }
         })

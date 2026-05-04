@@ -164,10 +164,13 @@ export function ExecutionPanel({ accountId, accountName, campaigns, spend, resul
   const executeAction = async (action: PlanAction) => {
     setExecuted(prev => ({ ...prev, [action.id]: 'running' }))
     try {
+      const resolvedEntityId = action.type === 'create_campaign'
+        ? (accountId.startsWith('act_') ? accountId : `act_${accountId}`)
+        : action.entityId
       const res = await fetch('/api/meta/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: action.type, entityId: action.entityId, params: action.params }),
+        body: JSON.stringify({ type: action.type, entityId: resolvedEntityId, params: action.params }),
       })
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error || 'Erro na execução')
@@ -249,7 +252,7 @@ export function ExecutionPanel({ accountId, accountName, campaigns, spend, resul
             <textarea
               value={instruction}
               onChange={e => setInstruction(e.target.value)}
-              placeholder={`Exemplos:\n• Pausar campanhas com CPP acima de R$80\n• Criar campanha de leads usando o criativo "Banner V2"\n• Aumentar orçamento dos conjuntos que mais convertem\n• Criar nova campanha de tráfego para o produto X`}
+              placeholder={`Use para ações simples:\n• Pausar campanhas com CPP acima de R$80\n• Aumentar orçamento dos conjuntos que mais convertem\n• Pausar conjuntos com CTR abaixo de 1%\n\n⚠️ Para criar campanhas, use o card "Criar campanha" acima.`}
               rows={4}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
             />

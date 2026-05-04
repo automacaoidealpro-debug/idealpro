@@ -54,6 +54,9 @@ export interface ClientAccount {
   dailySpend: number
   weeklySpend: number
   monthlySpend: number
+  lastMonthSpend: number
+  lastMonthResults: number
+  monthResults: number
   activeCampaigns: number
   pausedCampaigns: number
   leads: number

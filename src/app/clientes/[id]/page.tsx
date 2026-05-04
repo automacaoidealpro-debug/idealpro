@@ -11,9 +11,10 @@ import { HealthScore } from '@/components/HealthScore'
 import Link from 'next/link'
 import {
   ArrowLeft, RefreshCw, Calendar, ChevronDown,
-  TrendingUp, Users, ShoppingCart, DollarSign, BarChart2, Brain,
+  TrendingUp, Users, ShoppingCart, DollarSign, BarChart2, Brain, FileText,
 } from 'lucide-react'
 import { ExecutionPanel } from '@/components/ExecutionPanel'
+import { CreateCampaignForm } from '@/components/CreateCampaignForm'
 
 const PERIODS = [
   { value: 'today',      label: 'Hoje' },
@@ -124,11 +125,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     setLoadingCampaigns(true)
     setError(null)
 
-    // Parallel: account overview + campaign tree + account name
-    const [accRes, campRes, listRes] = await Promise.allSettled([
+    // Parallel: account overview + campaign tree (name comes from campaign response)
+    const [accRes, campRes] = await Promise.allSettled([
       fetch(buildUrl(`/api/meta/account/${id}`, p, s, u)),
       fetch(buildUrl(`/api/meta/account/${id}/active-campaigns`, p, s, u)),
-      fetch('/api/meta/accounts'),
     ])
 
     if (accRes.status === 'fulfilled') {
@@ -141,16 +141,12 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     if (campRes.status === 'fulfilled') {
       const d = await campRes.value.json().catch(() => null)
       if (d?.campaigns) setCampaigns(d.campaigns)
+      if (d?.name) setAccountName(d.name)
+      if (d?.error && !d?.campaigns) setError(`Campanhas: ${d.error}`)
+    } else {
+      setError('Erro ao carregar campanhas. Verifique a conexão e o token Meta.')
     }
     setLoadingCampaigns(false)
-
-    if (listRes.status === 'fulfilled') {
-      const d = await listRes.value.json().catch(() => null)
-      const found = d?.accounts?.find(
-        (a: { id: string; name: string }) => a.id === id || a.id === `act_${id}`
-      )
-      if (found) setAccountName(found.name)
-    }
   }, [id, buildUrl])
 
   useEffect(() => { fetchAll(period) }, [fetchAll, period])
@@ -207,6 +203,13 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
           </div>
           <div className="flex items-center gap-3">
             <HealthScore score={healthScore} size="lg" />
+            <Link
+              href={`/relatorios/${id}`}
+              className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors"
+            >
+              <FileText className="w-4 h-4" />
+              Relatório
+            </Link>
             <Link
               href={`/inteligencia/${id}`}
               className="flex items-center gap-2 px-4 py-2 bg-purple-600/80 hover:bg-purple-500 rounded-lg text-sm font-semibold transition-colors"
@@ -294,6 +297,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         optimizations={optimizations}
         loading={loadingCampaigns}
       />
+
+      {/* ── Criar Campanha ───────────────────────────────────────────────── */}
+      <div className="mb-4">
+        <CreateCampaignForm accountId={id} />
+      </div>
 
       {/* ── Execution Panel ───────────────────────────────────────────────── */}
       <div className="mb-6">

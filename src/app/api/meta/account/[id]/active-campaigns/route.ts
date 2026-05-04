@@ -22,8 +22,15 @@ async function metaGet(path: string, params: Record<string, string> = {}) {
   url.searchParams.set('access_token', TOKEN)
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
   const r = await fetch(url.toString(), { cache: 'no-store' })
-  const j = await r.json()
-  if (j.error) throw new Error(j.error.message)
+  const text = await r.text()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let j: any
+  try {
+    j = JSON.parse(text)
+  } catch {
+    throw new Error(`Meta API HTTP ${r.status}: resposta inválida (não é JSON). ${text.slice(0, 120)}`)
+  }
+  if (j?.error) throw new Error(j.error?.message || String(j.error))
   return j
 }
 
@@ -92,6 +99,24 @@ function processIns(d: Record<string, unknown> | undefined) {
   }
 }
 
+// Runs up to `limit` tasks concurrently
+async function concurrentMap<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  limit = 5,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let idx = 0
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++
+      results[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const accountId = id.startsWith('act_') ? id : `act_${id}`
@@ -104,51 +129,46 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const tp = buildTime(period, since, until)
 
   try {
-    // 1. Get ALL active campaigns
-    const campData = await metaGet(`/${accountId}/campaigns`, {
-      fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
-      filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }]),
-      limit: '100',
-    })
-    const campaigns: { id: string; name: string; objective: string; effective_status: string; daily_budget?: string; lifetime_budget?: string }[] = campData.data || []
+    // Step 1 — account name + campaign list in parallel (2 calls)
+    const [nameResult, campResult] = await Promise.allSettled([
+      metaGet(`/${accountId}`, { fields: 'name' }),
+      metaGet(`/${accountId}/campaigns`, {
+        fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
+        filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }]),
+        limit: '200',
+      }),
+    ])
 
-    // 2. For each active campaign: fetch insights + adsets in parallel
-    const enriched = await Promise.all(campaigns.map(async (c) => {
-      const [campIns, adsetsData] = await Promise.allSettled([
-        metaGet(`/${c.id}/insights`, { fields: AD_FIELDS, ...tp }).then(r => r.data?.[0]),
-        metaGet(`/${c.id}/adsets`, {
-          fields: 'id,name,status,effective_status,daily_budget,lifetime_budget,targeting',
-          filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }]),
-          limit: '100',
-        }).then(r => r.data || []),
-      ])
+    const accountName = nameResult.status === 'fulfilled' ? (nameResult.value.name || accountId) : accountId
 
-      const adsets: { id: string; name: string; effective_status: string }[] =
-        adsetsData.status === 'fulfilled' ? adsetsData.value : []
+    // If filtering request failed, retry without filtering and filter in JS
+    let campaigns: { id: string; name: string; objective: string; effective_status: string; daily_budget?: string; lifetime_budget?: string }[] = []
+    if (campResult.status === 'fulfilled') {
+      campaigns = campResult.value.data || []
+    } else {
+      try {
+        const fallback = await metaGet(`/${accountId}/campaigns`, {
+          fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
+          limit: '200',
+        })
+        campaigns = (fallback.data || []).filter((c: { effective_status: string }) => c.effective_status === 'ACTIVE')
+      } catch { campaigns = [] }
+    }
 
-      // 3. For each active adset: fetch insights in parallel
-      const adsetsWithIns = await Promise.all(adsets.map(async (s) => {
-        try {
-          const ins = await metaGet(`/${s.id}/insights`, { fields: AD_FIELDS, ...tp })
-          return { ...s, insights: processIns(ins.data?.[0]) }
-        } catch {
-          return { ...s, insights: null }
-        }
-      }))
-
-      adsetsWithIns.sort((a, b) => (b.insights?.spend || 0) - (a.insights?.spend || 0))
-
-      return {
-        ...c,
-        insights: campIns.status === 'fulfilled' ? processIns(campIns.value) : null,
-        adsets: adsetsWithIns,
+    // Step 2 — campaign-level insights only, max 5 concurrent (N calls where N = active campaigns)
+    // Adsets are NOT fetched here — they lazy-load in the UI when the user expands a campaign
+    const enriched = await concurrentMap(campaigns, async (c) => {
+      try {
+        const ins = await metaGet(`/${c.id}/insights`, { fields: AD_FIELDS, ...tp })
+        return { ...c, insights: processIns(ins.data?.[0]), adsets: [] }
+      } catch {
+        return { ...c, insights: null, adsets: [] }
       }
-    }))
+    }, 5)
 
-    // Sort campaigns: most spend first
     enriched.sort((a, b) => (b.insights?.spend || 0) - (a.insights?.spend || 0))
 
-    return NextResponse.json({ campaigns: enriched, period })
+    return NextResponse.json({ campaigns: enriched, period, name: accountName })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }

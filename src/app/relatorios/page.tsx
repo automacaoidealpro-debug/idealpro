@@ -175,7 +175,8 @@ export default function RelatoriosPage() {
   const [data, setData] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(false)
   const [generatedAt, setGeneratedAt] = useState<Date | null>(null)
-  const [view, setView] = useState<'narrative' | 'table'>('narrative')
+  const [view, setView] = useState<'narrative' | 'table' | 'whatsapp'>('narrative')
+  const [sentSet, setSentSet] = useState<Set<string>>(new Set())
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [targets, setTargets] = useState<Record<string, AccountTarget>>({})
 
@@ -330,7 +331,7 @@ export default function RelatoriosPage() {
         )}
 
         {/* View toggle */}
-        <div className="flex items-center gap-2 print:hidden">
+        <div className="flex items-center gap-2 print:hidden flex-wrap">
           <button onClick={() => setView('narrative')}
             className={cn('px-4 py-2 rounded-xl text-sm font-medium border transition-all',
               view === 'narrative' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400')}>
@@ -340,6 +341,12 @@ export default function RelatoriosPage() {
             className={cn('px-4 py-2 rounded-xl text-sm font-medium border transition-all',
               view === 'table' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400')}>
             Tabela de dados
+          </button>
+          <button onClick={() => { setView('whatsapp'); setSentSet(new Set()) }}
+            className={cn('flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border transition-all',
+              view === 'whatsapp' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-green-700 border-green-300 hover:bg-green-50')}>
+            <MessageSquare className="w-3.5 h-3.5" />
+            Envio WhatsApp
           </button>
         </div>
 
@@ -640,6 +647,100 @@ export default function RelatoriosPage() {
             </div>
           </div>
         )}
+
+        {/* ── WHATSAPP BATCH VIEW ─────────────────────────────── */}
+        {data && view === 'whatsapp' && (() => {
+          const withWa = data.rows.filter(r => targets[r.id]?.whatsapp)
+          const withoutWa = data.rows.filter(r => !targets[r.id]?.whatsapp)
+          return (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
+                <p className="text-sm font-bold text-green-800 mb-1">
+                  {sentSet.size} de {withWa.length} clientes notificados
+                </p>
+                <div className="w-full bg-green-200 rounded-full h-1.5">
+                  <div className="bg-green-600 h-1.5 rounded-full transition-all" style={{ width: withWa.length > 0 ? `${(sentSet.size / withWa.length) * 100}%` : '0%' }} />
+                </div>
+                {withoutWa.length > 0 && (
+                  <p className="text-xs text-green-600 mt-2">
+                    {withoutWa.length} conta{withoutWa.length !== 1 ? 's' : ''} sem WhatsApp configurado — defina em Painel → engrenagem da conta
+                  </p>
+                )}
+              </div>
+
+              {withWa.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center text-gray-500 text-sm">
+                  Nenhuma conta tem WhatsApp configurado. Configure em Painel → ícone de engrenagem em cada conta.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {withWa.map(row => {
+                    const narrative = generateNarrative(row, activePeriodLabel)
+                    const whatsapp = targets[row.id]!.whatsapp!
+                    const sent = sentSet.has(row.id)
+                    return (
+                      <div key={row.id} className={cn(
+                        'flex items-center gap-4 p-4 rounded-2xl border transition-all',
+                        sent ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'
+                      )}>
+                        <div className={cn(
+                          'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold',
+                          sent ? 'bg-green-500 text-white' : 'bg-gradient-to-br from-blue-400 to-indigo-600 text-white'
+                        )}>
+                          {sent ? '✓' : row.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm truncate">{row.name}</p>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">{narrative}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <CopyButton text={narrative} />
+                          <button
+                            onClick={() => {
+                              window.open(`https://wa.me/${whatsapp}?text=${encodeURIComponent(narrative)}`, '_blank')
+                              setSentSet(prev => new Set([...prev, row.id]))
+                            }}
+                            className={cn(
+                              'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors border font-semibold',
+                              sent
+                                ? 'bg-green-100 text-green-700 border-green-200'
+                                : 'bg-green-600 hover:bg-green-700 text-white border-green-600'
+                            )}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            {sent ? 'Enviado' : 'Enviar'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {withoutWa.length > 0 && (
+                <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                  <p className="px-4 py-3 text-xs font-semibold text-gray-400 border-b border-gray-100">
+                    Sem WhatsApp — copiar manualmente ({withoutWa.length})
+                  </p>
+                  <div className="divide-y divide-gray-50">
+                    {withoutWa.map(row => {
+                      const narrative = generateNarrative(row, activePeriodLabel)
+                      return (
+                        <div key={row.id} className="flex items-center gap-4 px-4 py-3">
+                          <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-xs font-bold text-gray-500">
+                            {row.name.charAt(0).toUpperCase()}
+                          </div>
+                          <p className="flex-1 text-sm text-gray-700 truncate">{row.name}</p>
+                          <CopyButton text={narrative} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
     </div>
   )

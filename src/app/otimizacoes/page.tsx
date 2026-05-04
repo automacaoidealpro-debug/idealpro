@@ -15,6 +15,7 @@ interface Account {
   ctr: number
   impressions: number
   clicks: number
+  frequency: number
   type: 'lead' | 'ecommerce' | 'conversa'
 }
 
@@ -25,7 +26,7 @@ interface Alert {
   detail: string
 }
 
-function getAlerts(acc: Account): Alert[] {
+function getAlerts(acc: Account, targetCpp?: number): Alert[] {
   const alerts: Alert[] = []
 
   if (acc.spend > 0 && acc.results === 0) {
@@ -37,20 +38,54 @@ function getAlerts(acc: Account): Alert[] {
     })
   }
 
-  if (acc.cpp > 100 && acc.results > 0) {
-    alerts.push({
-      level: 'critical',
-      icon: <DollarSign className="w-3.5 h-3.5" />,
-      title: 'CPP muito alto',
-      detail: `Custo por resultado de ${formatCurrency(acc.cpp)} — acima de R$100`,
-    })
-  } else if (acc.cpp > 50 && acc.results > 0) {
-    alerts.push({
-      level: 'warning',
-      icon: <DollarSign className="w-3.5 h-3.5" />,
-      title: 'CPP elevado',
-      detail: `Custo por resultado de ${formatCurrency(acc.cpp)} — atenção`,
-    })
+  if (acc.cpp > 0 && acc.results > 0) {
+    if (targetCpp) {
+      if (acc.cpp > targetCpp * 1.5) {
+        alerts.push({
+          level: 'critical',
+          icon: <DollarSign className="w-3.5 h-3.5" />,
+          title: 'CPP acima da meta',
+          detail: `${formatCurrency(acc.cpp)} vs meta de ${formatCurrency(targetCpp)} — 50% acima do alvo`,
+        })
+      } else if (acc.cpp > targetCpp) {
+        alerts.push({
+          level: 'warning',
+          icon: <DollarSign className="w-3.5 h-3.5" />,
+          title: 'CPP acima da meta',
+          detail: `${formatCurrency(acc.cpp)} vs meta de ${formatCurrency(targetCpp)} — ajustar campanhas`,
+        })
+      } else if (acc.cpp < targetCpp * 0.7 && acc.results > 5) {
+        alerts.push({
+          level: 'opportunity',
+          icon: <TrendingUp className="w-3.5 h-3.5" />,
+          title: 'Escalar agora',
+          detail: `CPP ${formatCurrency(acc.cpp)} — 30% abaixo da meta de ${formatCurrency(targetCpp)}, considerar aumentar orçamento`,
+        })
+      }
+    } else {
+      if (acc.cpp > 100) {
+        alerts.push({
+          level: 'critical',
+          icon: <DollarSign className="w-3.5 h-3.5" />,
+          title: 'CPP muito alto',
+          detail: `Custo por resultado de ${formatCurrency(acc.cpp)} — acima de R$100`,
+        })
+      } else if (acc.cpp > 50) {
+        alerts.push({
+          level: 'warning',
+          icon: <DollarSign className="w-3.5 h-3.5" />,
+          title: 'CPP elevado',
+          detail: `Custo por resultado de ${formatCurrency(acc.cpp)} — atenção`,
+        })
+      } else if (acc.cpp < 20 && acc.results > 5) {
+        alerts.push({
+          level: 'opportunity',
+          icon: <TrendingUp className="w-3.5 h-3.5" />,
+          title: 'Escalar agora',
+          detail: `CPP de ${formatCurrency(acc.cpp)} — ótimo resultado, considerar aumentar orçamento`,
+        })
+      }
+    }
   }
 
   if (acc.ctr < 0.5 && acc.impressions > 5000) {
@@ -62,12 +97,19 @@ function getAlerts(acc: Account): Alert[] {
     })
   }
 
-  if (acc.cpp > 0 && acc.cpp < 20 && acc.results > 5) {
+  if (acc.frequency > 6 && acc.impressions > 5000) {
     alerts.push({
-      level: 'opportunity',
-      icon: <TrendingUp className="w-3.5 h-3.5" />,
-      title: 'Escalar agora',
-      detail: `CPP de ${formatCurrency(acc.cpp)} — ótimo resultado, considerar aumentar orçamento`,
+      level: 'critical',
+      icon: <AlertTriangle className="w-3.5 h-3.5" />,
+      title: 'Frequência muito alta',
+      detail: `Frequência de ${acc.frequency.toFixed(1)} — mesmo público vendo o anúncio muitas vezes, trocar criativo urgente`,
+    })
+  } else if (acc.frequency > 3.5 && acc.impressions > 5000) {
+    alerts.push({
+      level: 'warning',
+      icon: <AlertTriangle className="w-3.5 h-3.5" />,
+      title: 'Frequência elevada',
+      detail: `Frequência de ${acc.frequency.toFixed(1)} — considerar novo criativo ou ampliar público`,
     })
   }
 
@@ -104,7 +146,7 @@ export default function OtimizacoesPage() {
   useEffect(() => { load() }, [load])
 
   const accountsWithAlerts = accounts
-    .map(acc => ({ acc, alerts: getAlerts(acc) }))
+    .map(acc => ({ acc, alerts: getAlerts(acc, targets[acc.id]?.targetCpp) }))
     .filter(x => x.alerts.length > 0)
     .sort((a, b) => {
       const priority = (alerts: Alert[]) =>
