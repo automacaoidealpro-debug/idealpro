@@ -145,14 +145,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const timeParams = buildTimeParams(period, since, until)
 
   try {
-    // Fetch campaign info + adsets + campaign insights in parallel
-    const [campaignInfo, adsetsData, ciData] = await Promise.all([
+    // 4 parallel API calls instead of N+1:
+    // 1. campaign info  2. adsets list  3. ALL adset insights (level=adset)  4. campaign-level insights
+    const [campaignInfo, adsetsData, adsetInsData, ciData] = await Promise.all([
       metaFetch(`/${campaignId}`, {
         fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
       }).catch(() => ({})),
       metaFetch(`/${campaignId}/adsets`, {
         fields: 'id,name,status,effective_status,daily_budget,lifetime_budget',
         limit: '100',
+      }).catch(() => ({ data: [] })),
+      metaFetch(`/${campaignId}/insights`, {
+        fields: AD_FIELDS,
+        level: 'adset',
+        limit: '100',
+        ...timeParams,
       }).catch(() => ({ data: [] })),
       metaFetch(`/${campaignId}/insights`, { fields: AD_FIELDS, ...timeParams })
         .catch(() => ({ data: [] })),
@@ -161,25 +168,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const adsets = (adsetsData.data || []) as { id: string; name: string; status: string; effective_status: string }[]
     const campaignInsights = processInsights(ciData.data?.[0])
 
-    // Fetch insights for each adset, max 5 concurrent
-    let idx = 0
-    const adsetResults: { id: string; name: string; status: string; effective_status: string; insights: ReturnType<typeof processInsights> }[] =
-      new Array(adsets.length)
-    async function worker() {
-      while (idx < adsets.length) {
-        const i = idx++
-        const adset = adsets[i]
-        try {
-          const ins = await metaFetch(`/${adset.id}/insights`, { fields: AD_FIELDS, ...timeParams })
-          adsetResults[i] = { ...adset, insights: processInsights(ins.data?.[0]) }
-        } catch {
-          adsetResults[i] = { ...adset, insights: null }
-        }
-      }
+    // Build adset_id → insights map from the single level=adset call
+    const insMap: Record<string, ReturnType<typeof processInsights>> = {}
+    for (const row of ((adsetInsData as { data?: Record<string, unknown>[] }).data || [])) {
+      const aid = row.adset_id as string
+      if (aid) insMap[aid] = processInsights(row)
     }
-    await Promise.all(Array.from({ length: Math.min(5, adsets.length) }, worker))
 
-    // Sort: active first, then by spend
+    // Combine: all adsets get their insights (null if no spend in period — adset still appears)
+    const adsetResults = adsets.map(adset => ({
+      ...adset,
+      insights: insMap[adset.id] || null,
+    }))
+
+    // Sort: active first, then by spend desc
     adsetResults.sort((a, b) => {
       if (a.effective_status === 'ACTIVE' && b.effective_status !== 'ACTIVE') return -1
       if (b.effective_status === 'ACTIVE' && a.effective_status !== 'ACTIVE') return 1
