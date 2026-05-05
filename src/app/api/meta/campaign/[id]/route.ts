@@ -175,8 +175,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       }).catch(() => ({})),
       metaFetch(`/${campaignId}/adsets`, {
         fields: 'id,name,status,effective_status,daily_budget,lifetime_budget',
+        filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED', 'CAMPAIGN_PAUSED'] }]),
         limit: '100',
-      }).catch(() => ({ data: [] })),
+      }).catch(() => (
+        // fallback: sem filtering se a API rejeitar o parâmetro
+        metaFetch(`/${campaignId}/adsets`, {
+          fields: 'id,name,status,effective_status,daily_budget,lifetime_budget',
+          limit: '100',
+        }).catch(() => ({ data: [] }))
+      )),
       metaFetch(`/${campaignId}/insights`, { fields: AD_FIELDS, ...timeParams })
         .catch(() => ({ data: [] })),
     ])

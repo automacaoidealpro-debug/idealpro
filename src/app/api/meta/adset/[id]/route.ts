@@ -136,8 +136,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try {
     const adsData = await metaFetch(`/${adsetId}/ads`, {
       fields: 'id,name,status,effective_status,creative{id,name,thumbnail_url,body,title}',
+      filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED'] }]),
       limit: '200',
-    })
+    }).catch(() =>
+      metaFetch(`/${adsetId}/ads`, {
+        fields: 'id,name,status,effective_status,creative{id,name,thumbnail_url,body,title}',
+        limit: '200',
+      }).catch(() => ({ data: [] }))
+    )
 
     const ads = (adsData.data || []) as { id: string; name: string; effective_status: string }[]
 
