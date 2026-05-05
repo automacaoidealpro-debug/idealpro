@@ -4,9 +4,6 @@ import {
   buildTimeParams, processInsights,
   AD_FIELDS, VALID_PRESETS,
 } from '@/lib/meta-shared'
-import { getCached, setCached } from '@/lib/meta-cache'
-
-type Adset = { id: string; name: string; status: string; effective_status: string }
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: campaignId } = await params
@@ -18,13 +15,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const until = searchParams.get('until')
   const tp = buildTimeParams(period, since, until)
 
-  // Cache check
-  const cacheKey = `camp:${campaignId}:adsets:${period}:${since ?? ''}:${until ?? ''}`
-  const cached = await getCached(cacheKey)
-  if (cached) return NextResponse.json(cached)
-
   try {
-    const [campaignInfo, adsetsRaw, ciData] = await Promise.all([
+    const [campaignInfo, adsetsData, ciData] = await Promise.all([
       metaGet(`/${campaignId}`, {
         fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
       }).catch(() => ({})),
@@ -35,7 +27,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         ]),
         limit: '100',
       }).catch(() =>
-        // fallback without filtering
         metaGet(`/${campaignId}/adsets`, {
           fields: 'id,name,status,effective_status,daily_budget,lifetime_budget',
           limit: '100',
@@ -45,12 +36,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         .catch(() => ({ data: [] })),
     ])
 
-    const adsets = ((adsetsRaw as { data?: unknown[] }).data || []) as Adset[]
+    const adsets = ((adsetsData as { data?: unknown[] }).data || []) as {
+      id: string; name: string; status: string; effective_status: string
+    }[]
     const campaignInsights = processInsights(
       ((ciData as { data?: Record<string, unknown>[] }).data)?.[0]
     )
 
-    // Fetch insights per adset — 3 concurrent with retry
     const adsetResults = await concurrentMap(adsets, async (adset) => {
       try {
         const ins = await withRetry(() =>
@@ -68,9 +60,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return (b.insights?.spend || 0) - (a.insights?.spend || 0)
     })
 
-    const result = { campaign: campaignInfo, insights: campaignInsights, adsets: adsetResults, period }
-    await setCached(cacheKey, result, period, since, until)
-    return NextResponse.json(result)
+    return NextResponse.json({
+      campaign: campaignInfo,
+      insights: campaignInsights,
+      adsets: adsetResults,
+      period,
+    })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }

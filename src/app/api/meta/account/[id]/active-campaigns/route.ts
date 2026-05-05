@@ -76,7 +76,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     })
 
     const result = { campaigns: visible, period, name: accountName }
-    await setCached(cacheKey, result, period, since, until)
+    if (visible.length > 0) await setCached(cacheKey, result, period, since, until)
     return NextResponse.json(result)
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
