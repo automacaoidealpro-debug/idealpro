@@ -133,6 +133,30 @@ function buildTimeParams(preset: string, since: string | null, until: string | n
   return { date_preset: preset }
 }
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn() } catch (e) {
+      lastErr = e
+      if (i < retries) await new Promise(r => setTimeout(r, 600 * (i + 1)))
+    }
+  }
+  throw lastErr
+}
+
+async function concurrentMap<T, R>(items: T[], fn: (item: T) => Promise<R>, limit = 3): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let idx = 0
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++
+      results[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: campaignId } = await params
   const { searchParams } = new URL(req.url)
@@ -160,21 +184,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const adsets = (adsetsData.data || []) as { id: string; name: string; status: string; effective_status: string }[]
     const campaignInsights = processInsights(ciData.data?.[0])
 
-    // N+1 per adset — 5 concurrent workers
-    const adsetResults: ({ id: string; name: string; status: string; effective_status: string; insights: ReturnType<typeof processInsights> })[] = new Array(adsets.length)
-    let idx = 0
-    async function worker() {
-      while (idx < adsets.length) {
-        const i = idx++
-        try {
-          const ins = await metaFetch(`/${adsets[i].id}/insights`, { fields: AD_FIELDS, ...timeParams })
-          adsetResults[i] = { ...adsets[i], insights: processInsights(ins.data?.[0]) }
-        } catch {
-          adsetResults[i] = { ...adsets[i], insights: null }
-        }
+    // N+1 per adset — 3 concurrent with retry to handle rate limits
+    const adsetResults = await concurrentMap(adsets, async (adset) => {
+      try {
+        const ins = await withRetry(() => metaFetch(`/${adset.id}/insights`, { fields: AD_FIELDS, ...timeParams }))
+        return { ...adset, insights: processInsights(ins.data?.[0]) }
+      } catch {
+        return { ...adset, insights: null }
       }
-    }
-    await Promise.all(Array.from({ length: Math.min(5, adsets.length) }, worker))
+    })
 
     adsetResults.sort((a, b) => {
       if (a.effective_status === 'ACTIVE' && b.effective_status !== 'ACTIVE') return -1

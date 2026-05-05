@@ -98,6 +98,30 @@ function buildTimeParams(preset: string, since: string | null, until: string | n
   return { date_preset: preset }
 }
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn() } catch (e) {
+      lastErr = e
+      if (i < retries) await new Promise(r => setTimeout(r, 600 * (i + 1)))
+    }
+  }
+  throw lastErr
+}
+
+async function concurrentMap<T, R>(items: T[], fn: (item: T) => Promise<R>, limit = 3): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let idx = 0
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++
+      results[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: adsetId } = await params
   const { searchParams } = new URL(req.url)
@@ -117,16 +141,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
     const ads = (adsData.data || []) as { id: string; name: string; effective_status: string }[]
 
-    const adsWithInsights = await Promise.all(
-      ads.map(async (ad) => {
-        try {
-          const ins = await metaFetch(`/${ad.id}/insights`, { fields: AD_FIELDS, ...timeParams })
-          return { ...ad, insights: processInsights(ins.data?.[0]) }
-        } catch {
-          return { ...ad, insights: null }
-        }
-      })
-    )
+    const adsWithInsights = await concurrentMap(ads, async (ad) => {
+      try {
+        const ins = await withRetry(() => metaFetch(`/${ad.id}/insights`, { fields: AD_FIELDS, ...timeParams }))
+        return { ...ad, insights: processInsights(ins.data?.[0]) }
+      } catch {
+        return { ...ad, insights: null }
+      }
+    })
 
     adsWithInsights.sort((a, b) => (b.insights?.spend || 0) - (a.insights?.spend || 0))
 

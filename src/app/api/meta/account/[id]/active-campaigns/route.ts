@@ -97,6 +97,17 @@ function processIns(d: Record<string, unknown> | undefined) {
   }
 }
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn() } catch (e) {
+      lastErr = e
+      if (i < retries) await new Promise(r => setTimeout(r, 600 * (i + 1)))
+    }
+  }
+  throw lastErr
+}
+
 async function concurrentMap<T, R>(items: T[], fn: (item: T) => Promise<R>, limit = 5): Promise<R[]> {
   const results: R[] = new Array(items.length)
   let idx = 0
@@ -148,15 +159,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       } catch { campaigns = [] }
     }
 
-    // Fetch insights per campaign — 5 at a time
+    // Fetch insights per campaign — 3 at a time with retry to handle rate limits
     const enriched = await concurrentMap(campaigns, async (c) => {
       try {
-        const ins = await metaGet(`/${c.id}/insights`, { fields: AD_FIELDS, ...tp })
+        const ins = await withRetry(() => metaGet(`/${c.id}/insights`, { fields: AD_FIELDS, ...tp }))
         return { ...c, insights: processIns(ins.data?.[0]), adsets: [] }
       } catch {
         return { ...c, insights: null, adsets: [] }
       }
-    }, 5)
+    }, 3)
 
     // Always show ACTIVE; show PAUSED only if they had spend in the selected period
     const visible = enriched.filter(c =>
