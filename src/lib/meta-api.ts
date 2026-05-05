@@ -57,11 +57,21 @@ export async function getAccountCampaigns(accountId: string) {
   try {
     const data = await metaFetch(`/${accountId}/campaigns`, {
       fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
+      filtering: JSON.stringify([
+        { field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED'] },
+      ]),
       limit: '200',
     })
     return data.data || []
   } catch {
-    return []
+    // fallback sem filtering se a API rejeitar
+    try {
+      const data = await metaFetch(`/${accountId}/campaigns`, {
+        fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
+        limit: '200',
+      })
+      return data.data || []
+    } catch { return [] }
   }
 }
 
@@ -230,13 +240,18 @@ export async function buildClientDashboard() {
         spend: monthlySpend,
       })
 
+      // account_status: 1 = ACTIVE, outros = desativado/suspenso/etc.
+      // Trata null/undefined como desconhecido (não marca como pausado).
+      const metaAccountInactive =
+        acc.account_status != null && acc.account_status !== 1
+
       const status =
-        acc.account_status !== 1
+        metaAccountInactive
           ? 'paused'
           : activeCampaigns === 0
           ? 'no_campaigns'
-          : dailySpend === 0
-          ? 'error'
+          : monthlySpend === 0
+          ? 'error'   // zero de gasto no mês inteiro → realmente sem gasto
           : 'active'
 
       const alerts = detectAlerts({
