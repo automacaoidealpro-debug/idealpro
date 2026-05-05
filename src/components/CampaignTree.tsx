@@ -333,11 +333,18 @@ function CampaignCard({ campaign: c, resultLabel, period, since, until }: Campai
         {/* Campaign info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+            <span className={cn('w-2 h-2 rounded-full flex-shrink-0',
+              c.effective_status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-400'
+            )} />
             <h3 className="font-bold text-gray-900 text-sm truncate" title={c.name}>{c.name}</h3>
             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
               {objective}
             </span>
+            {c.effective_status !== 'ACTIVE' && (
+              <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
+                Pausada
+              </span>
+            )}
             {adsets !== null && (
               <span className="text-xs text-gray-400 ml-auto flex-shrink-0">
                 {displayedAdsets.length} conjunto{displayedAdsets.length !== 1 ? 's' : ''}
@@ -429,8 +436,8 @@ export function CampaignTree({ campaigns, resultLabel, period, since, until, loa
     return (
       <div className="text-center py-16 text-gray-400">
         <TrendingUp className="w-10 h-10 mx-auto mb-3 opacity-30" />
-        <p className="text-base font-medium">Nenhuma campanha ativa</p>
-        <p className="text-sm mt-1">Esta conta não tem campanhas rodando no momento</p>
+        <p className="text-base font-medium">Nenhuma campanha com gasto no período</p>
+        <p className="text-sm mt-1">Nenhuma campanha ativa ou com investimento no período selecionado</p>
       </div>
     )
   }

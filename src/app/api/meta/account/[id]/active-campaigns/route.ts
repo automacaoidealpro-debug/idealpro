@@ -134,7 +134,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       metaGet(`/${accountId}`, { fields: 'name' }),
       metaGet(`/${accountId}/campaigns`, {
         fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
-        filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }]),
+        filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED'] }]),
         limit: '200',
       }),
     ])
@@ -151,7 +151,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
           limit: '200',
         })
-        campaigns = (fallback.data || []).filter((c: { effective_status: string }) => c.effective_status === 'ACTIVE')
+        campaigns = (fallback.data || []).filter((c: { effective_status: string }) =>
+          c.effective_status === 'ACTIVE' || c.effective_status === 'PAUSED')
       } catch { campaigns = [] }
     }
 
@@ -166,9 +167,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       }
     }, 5)
 
-    enriched.sort((a, b) => (b.insights?.spend || 0) - (a.insights?.spend || 0))
+    // Keep active campaigns always; keep paused only if they had spend in the period
+    const visible = enriched.filter(c =>
+      c.effective_status === 'ACTIVE' || (c.insights?.spend || 0) > 0
+    )
+    visible.sort((a, b) => {
+      // Active first, then by spend descending
+      if (a.effective_status === 'ACTIVE' && b.effective_status !== 'ACTIVE') return -1
+      if (b.effective_status === 'ACTIVE' && a.effective_status !== 'ACTIVE') return 1
+      return (b.insights?.spend || 0) - (a.insights?.spend || 0)
+    })
 
-    return NextResponse.json({ campaigns: enriched, period, name: accountName })
+    return NextResponse.json({ campaigns: visible, period, name: accountName })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
