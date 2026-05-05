@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 const BASE = 'https://graph.facebook.com/v20.0'
 const TOKEN = process.env.META_ACCESS_TOKEN!
 
-const INS_FIELDS = [
+const AD_FIELDS = [
   'spend', 'impressions', 'clicks', 'ctr', 'cpp', 'reach', 'frequency',
   'inline_link_clicks', 'outbound_clicks',
   'actions', 'cost_per_action_type',
@@ -97,6 +97,19 @@ function processIns(d: Record<string, unknown> | undefined) {
   }
 }
 
+async function concurrentMap<T, R>(items: T[], fn: (item: T) => Promise<R>, limit = 5): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let idx = 0
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++
+      results[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const accountId = id.startsWith('act_') ? id : `act_${id}`
@@ -109,31 +122,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const tp = buildTime(period, since, until)
 
   try {
-    // 3 API calls in parallel (instead of N+1):
-    // 1. account name
-    // 2. full campaign list (ACTIVE + PAUSED)
-    // 3. account-level insights broken down by campaign — ONE call returns spend for ALL campaigns
-    const [nameRes, campRes, insRes] = await Promise.allSettled([
+    const [nameResult, campResult] = await Promise.allSettled([
       metaGet(`/${accountId}`, { fields: 'name' }),
       metaGet(`/${accountId}/campaigns`, {
         fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
         filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED'] }]),
         limit: '200',
       }),
-      metaGet(`/${accountId}/insights`, {
-        fields: INS_FIELDS,
-        level: 'campaign',
-        limit: '200',
-        ...tp,
-      }),
     ])
 
-    const accountName = nameRes.status === 'fulfilled' ? (nameRes.value.name || accountId) : accountId
+    const accountName = nameResult.status === 'fulfilled' ? (nameResult.value.name || accountId) : accountId
 
-    // Campaign list — fallback to unfiltered if filtering param is rejected
+    // Campaign list — fallback without filtering if API rejects the filtering param
     let campaigns: { id: string; name: string; objective: string; effective_status: string; daily_budget?: string; lifetime_budget?: string }[] = []
-    if (campRes.status === 'fulfilled') {
-      campaigns = campRes.value.data || []
+    if (campResult.status === 'fulfilled') {
+      campaigns = campResult.value.data || []
     } else {
       try {
         const fb = await metaGet(`/${accountId}/campaigns`, {
@@ -145,29 +148,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       } catch { campaigns = [] }
     }
 
-    // Build campaign → insights map from the single account-level call
-    // campaign_id is always included by Meta when level=campaign
-    const insMap: Record<string, ReturnType<typeof processIns>> = {}
-    if (insRes.status === 'fulfilled') {
-      for (const row of (insRes.value.data || [])) {
-        const cid = row.campaign_id as string
-        if (cid) insMap[cid] = processIns(row)
+    // Fetch insights per campaign — 5 at a time
+    const enriched = await concurrentMap(campaigns, async (c) => {
+      try {
+        const ins = await metaGet(`/${c.id}/insights`, { fields: AD_FIELDS, ...tp })
+        return { ...c, insights: processIns(ins.data?.[0]), adsets: [] }
+      } catch {
+        return { ...c, insights: null, adsets: [] }
       }
-    }
+    }, 5)
 
-    // Combine: every campaign gets insights from the map (or null if no spend in period)
-    const enriched = campaigns.map(c => ({
-      ...c,
-      insights: insMap[c.id] || null,
-      adsets: [],
-    }))
-
-    // Show ACTIVE campaigns always; PAUSED only if they had spend in the selected period
+    // Always show ACTIVE; show PAUSED only if they had spend in the selected period
     const visible = enriched.filter(c =>
       c.effective_status === 'ACTIVE' || (c.insights?.spend || 0) > 0
     )
 
-    // Sort: ACTIVE first (by spend desc within group), then PAUSED with spend (by spend desc)
     visible.sort((a, b) => {
       if (a.effective_status === 'ACTIVE' && b.effective_status !== 'ACTIVE') return -1
       if (b.effective_status === 'ACTIVE' && a.effective_status !== 'ACTIVE') return 1

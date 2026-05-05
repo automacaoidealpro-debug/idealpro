@@ -110,37 +110,24 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const timeParams = buildTimeParams(period, since, until)
 
   try {
-    // 2 parallel API calls instead of N+1:
-    // 1. ads list  2. ALL ad insights at once via level=ad
-    const [adsData, adInsData] = await Promise.all([
-      metaFetch(`/${adsetId}/ads`, {
-        fields: 'id,name,status,effective_status,creative{id,name,thumbnail_url,body,title}',
-        limit: '200',
-      }).catch(() => ({ data: [] })),
-      metaFetch(`/${adsetId}/insights`, {
-        fields: AD_FIELDS,
-        level: 'ad',
-        limit: '200',
-        ...timeParams,
-      }).catch(() => ({ data: [] })),
-    ])
+    const adsData = await metaFetch(`/${adsetId}/ads`, {
+      fields: 'id,name,status,effective_status,creative{id,name,thumbnail_url,body,title}',
+      limit: '200',
+    })
 
     const ads = (adsData.data || []) as { id: string; name: string; effective_status: string }[]
 
-    // Build ad_id → insights map
-    const insMap: Record<string, ReturnType<typeof processInsights>> = {}
-    for (const row of ((adInsData as { data?: Record<string, unknown>[] }).data || [])) {
-      const aid = row.ad_id as string
-      if (aid) insMap[aid] = processInsights(row)
-    }
+    const adsWithInsights = await Promise.all(
+      ads.map(async (ad) => {
+        try {
+          const ins = await metaFetch(`/${ad.id}/insights`, { fields: AD_FIELDS, ...timeParams })
+          return { ...ad, insights: processInsights(ins.data?.[0]) }
+        } catch {
+          return { ...ad, insights: null }
+        }
+      })
+    )
 
-    // Combine: all ads get their insights (null if no spend in period — ad still appears)
-    const adsWithInsights = ads.map(ad => ({
-      ...ad,
-      insights: insMap[ad.id] || null,
-    }))
-
-    // Sort by spend desc
     adsWithInsights.sort((a, b) => (b.insights?.spend || 0) - (a.insights?.spend || 0))
 
     return NextResponse.json({ ads: adsWithInsights })
