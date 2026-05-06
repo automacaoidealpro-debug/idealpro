@@ -48,26 +48,33 @@ interface AccountData {
   byWeekOfMonth: BreakdownRow[]
 }
 
-const RESULT_PRIORITY = [
+const RESULT_TYPES = new Set([
   'purchase', 'omni_purchase',
-  'lead', 'complete_registration',
+  'lead', 'complete_registration', 'submit_application',
   'onsite_conversion.messaging_conversation_started_7d',
   'onsite_conversion.messaging_first_reply',
-]
+  'contact',
+])
 
-function getResultValue(ins: Insights | null | undefined) {
-  if (!ins?.actions) return 0
-  for (const t of RESULT_PRIORITY) {
-    const f = ins.actions.find(a => a.action_type === t)
-    if (f && parseInt(f.value) > 0) return parseInt(f.value)
+function getBestResultType(actions?: { action_type: string; value: string }[]): { type: string; value: number } {
+  if (!actions) return { type: '', value: 0 }
+  let best = { type: '', value: 0 }
+  for (const a of actions) {
+    if (!RESULT_TYPES.has(a.action_type)) continue
+    const val = parseInt(a.value)
+    if (val > best.value) best = { type: a.action_type, value: val }
   }
-  return 0
+  return best
 }
 
-function getCpr(cpa?: { action_type: string; value: string }[]) {
+function getResultValue(ins: Insights | null | undefined) {
+  return getBestResultType(ins?.actions).value
+}
+
+function getCpr(cpa?: { action_type: string; value: string }[], resultType?: string) {
   if (!cpa) return 0
-  for (const t of RESULT_PRIORITY) {
-    const v = parseFloat(cpa.find(a => a.action_type === t)?.value || '0')
+  if (resultType) {
+    const v = parseFloat(cpa.find(a => a.action_type === resultType)?.value || '0')
     if (v > 0) return v
   }
   return 0
@@ -173,7 +180,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const selCtr = parseFloat(sel?.ctr || '0')
   const selCpp = parseFloat(sel?.cpp || '0')
   const selResults = getResultValue(sel)
-  const selCpr = getCpr(sel?.cost_per_action_type)
+  const selCpr = getCpr(sel?.cost_per_action_type, getBestResultType(sel?.actions).type)
   const resultLabel = accountData?.resultType || 'Resultados'
 
   const optimizations = generateOptimizations(campaigns)

@@ -61,30 +61,30 @@ async function getInsights(
 type ActionList = { action_type: string; value: string }[]
 
 // Strict priority — link_click excluded (volume, not conversion)
-const RESULT_PRIORITY = [
-  'purchase',
-  'lead',
-  'complete_registration',
-  'submit_application',
+const RESULT_TYPES = new Set([
+  'purchase', 'omni_purchase',
+  'lead', 'complete_registration', 'submit_application',
   'onsite_conversion.messaging_conversation_started_7d',
   'onsite_conversion.messaging_first_reply',
-]
+  'contact',
+])
 
 function getBestResult(actions?: ActionList): { type: string; value: number } {
   if (!actions) return { type: '', value: 0 }
-  for (const t of RESULT_PRIORITY) {
-    const found = actions.find((a) => a.action_type === t)
-    if (found && parseInt(found.value) > 0)
-      return { type: t, value: parseInt(found.value) }
+  let best = { type: '', value: 0 }
+  for (const a of actions) {
+    if (!RESULT_TYPES.has(a.action_type)) continue
+    const val = parseInt(a.value)
+    if (val > best.value) best = { type: a.action_type, value: val }
   }
-  return { type: '', value: 0 }
+  return best
 }
 
-function getCostPerResult(cpa?: ActionList): number {
+function getCostPerResult(cpa?: ActionList, resultType?: string): number {
   if (!cpa) return 0
-  for (const t of RESULT_PRIORITY) {
-    const found = cpa.find((a) => a.action_type === t)
-    if (found && parseFloat(found.value) > 0) return parseFloat(found.value)
+  if (resultType) {
+    const v = parseFloat(cpa.find(a => a.action_type === resultType)?.value || '0')
+    if (v > 0) return v
   }
   return 0
 }
@@ -126,8 +126,9 @@ function addRow(agg: Agg, row: DailyRow) {
   agg.spend += parseFloat(row.spend || '0')
   agg.impressions += parseInt(row.impressions || '0')
   agg.clicks += parseInt(row.clicks || '0')
-  agg.results += getBestResult(row.actions).value
-  const cpr = getCostPerResult(row.cost_per_action_type)
+  const { type: rType, value: rVal } = getBestResult(row.actions)
+  agg.results += rVal
+  const cpr = getCostPerResult(row.cost_per_action_type, rType)
   if (cpr > 0) { agg.costSum += cpr; agg.costCount++ }
 }
 
@@ -184,7 +185,7 @@ function mapBreakdownRows(
       ctr: parseFloat(r.ctr || '0'),
       cpp: parseFloat(r.cpp || '0'),
       results: getBestResult(r.actions).value,
-      costPerResult: getCostPerResult(r.cost_per_action_type),
+      costPerResult: getCostPerResult(r.cost_per_action_type, getBestResult(r.actions).type),
     }
   })
 }

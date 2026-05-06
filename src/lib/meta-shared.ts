@@ -14,12 +14,14 @@ export const VALID_PRESETS = new Set([
   'today', 'yesterday', 'last_7d', 'last_14d', 'last_28d', 'this_month', 'last_month',
 ])
 
-export const RESULT_PRIORITY = [
+// Known result action types — order doesn't matter, highest volume wins
+const RESULT_TYPES = new Set([
   'purchase', 'omni_purchase',
-  'lead', 'complete_registration',
+  'lead', 'complete_registration', 'submit_application',
   'onsite_conversion.messaging_conversation_started_7d',
   'onsite_conversion.messaging_first_reply',
-]
+  'contact',
+])
 
 export type ActionList = { action_type: string; value: string }[]
 
@@ -76,22 +78,34 @@ function getAction(actions: ActionList | undefined, type: string): number {
   return parseFloat(actions?.find(a => a.action_type === type)?.value || '0')
 }
 
+// Pick the result type with the highest volume — works correctly for both
+// lead gen campaigns (78 leads > 1 conversation) and messaging campaigns (55 conversations > 1 lead)
 export function getBestResult(actions?: ActionList): { type: string; value: number } {
   if (!actions) return { type: '', value: 0 }
-  for (const t of RESULT_PRIORITY) {
-    const f = actions.find(a => a.action_type === t)
-    if (f && parseInt(f.value) > 0) return { type: t, value: parseInt(f.value) }
+  let best = { type: '', value: 0 }
+  for (const a of actions) {
+    if (!RESULT_TYPES.has(a.action_type)) continue
+    const val = parseInt(a.value)
+    if (val > best.value) best = { type: a.action_type, value: val }
   }
-  return { type: '', value: 0 }
+  return best
 }
 
-export function getCpr(cpa?: ActionList): number {
+export function getCpr(cpa?: ActionList, resultType?: string): number {
   if (!cpa) return 0
-  for (const t of RESULT_PRIORITY) {
-    const v = parseFloat(cpa.find(a => a.action_type === t)?.value || '0')
+  const type = resultType || ''
+  if (type) {
+    const v = parseFloat(cpa.find(a => a.action_type === type)?.value || '0')
     if (v > 0) return v
   }
-  return 0
+  // fallback: highest CPA among known result types
+  let best = 0
+  for (const a of cpa) {
+    if (!RESULT_TYPES.has(a.action_type)) continue
+    const v = parseFloat(a.value)
+    if (v > best) best = v
+  }
+  return best
 }
 
 export function processInsights(d: Record<string, unknown> | undefined) {
@@ -124,6 +138,6 @@ export function processInsights(d: Record<string, unknown> | undefined) {
     initiateCheckout: getAction(actions, 'initiate_checkout'),
     results,
     resultType,
-    costPerResult: getCpr(cpa),
+    costPerResult: getCpr(cpa, resultType),
   }
 }
