@@ -16,8 +16,9 @@ export const VALID_PRESETS = new Set([
 
 export const RESULT_PRIORITY = [
   'purchase', 'omni_purchase',
-  'onsite_conversion.messaging_conversation_started_7d',
   'lead', 'complete_registration',
+  'onsite_conversion.messaging_conversation_started_7d',
+  'onsite_conversion.messaging_first_reply',
 ]
 
 export type ActionList = { action_type: string; value: string }[]

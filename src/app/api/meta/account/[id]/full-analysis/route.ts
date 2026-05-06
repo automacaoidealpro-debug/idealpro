@@ -59,8 +59,8 @@ const LEAD_TYPES = [
 
 const RESULT_PRIORITY = [
   ...PURCHASE_TYPES,
-  ...CONVERSATION_TYPES,
   ...LEAD_TYPES,
+  ...CONVERSATION_TYPES,
 ]
 
 // Returns total count for a group of action types

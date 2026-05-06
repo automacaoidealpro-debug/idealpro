@@ -20,18 +20,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       metaGet(`/${campaignId}`, {
         fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
       }).catch(() => ({})),
-      metaGet(`/${campaignId}/adsets`, {
-        fields: 'id,name,status,effective_status,daily_budget,lifetime_budget',
-        filtering: JSON.stringify([
-          { field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED', 'CAMPAIGN_PAUSED'] },
-        ]),
-        limit: '100',
-      }).catch(() =>
-        metaGet(`/${campaignId}/adsets`, {
+      (async () => {
+        const filtered = await metaGet(`/${campaignId}/adsets`, {
+          fields: 'id,name,status,effective_status,daily_budget,lifetime_budget',
+          filtering: JSON.stringify([
+            { field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED', 'CAMPAIGN_PAUSED'] },
+          ]),
+          limit: '100',
+        }).catch(() => null)
+        if ((filtered?.data || []).length > 0) return filtered
+        return metaGet(`/${campaignId}/adsets`, {
           fields: 'id,name,status,effective_status,daily_budget,lifetime_budget',
           limit: '100',
         }).catch(() => ({ data: [] }))
-      ),
+      })(),
       metaGet(`/${campaignId}/insights`, { fields: AD_FIELDS, ...tp })
         .catch(() => ({ data: [] })),
     ])

@@ -63,11 +63,11 @@ type ActionList = { action_type: string; value: string }[]
 // Strict priority — link_click excluded (volume, not conversion)
 const RESULT_PRIORITY = [
   'purchase',
-  'onsite_conversion.messaging_conversation_started_7d',
-  'onsite_conversion.messaging_first_reply',
   'lead',
   'complete_registration',
   'submit_application',
+  'onsite_conversion.messaging_conversation_started_7d',
+  'onsite_conversion.messaging_first_reply',
 ]
 
 function getBestResult(actions?: ActionList): { type: string; value: number } {
