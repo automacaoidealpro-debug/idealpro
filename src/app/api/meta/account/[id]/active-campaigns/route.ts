@@ -22,7 +22,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const until = searchParams.get('until')
   const tp = buildTimeParams(period, since, until)
 
-  const cacheKey = `act3:${accountId}:campaigns:${period}:${since ?? ''}:${until ?? ''}`
+  const cacheKey = `act4:${accountId}:campaigns:${period}:${since ?? ''}:${until ?? ''}`
   const cached = await getCached(cacheKey)
   if (cached) return NextResponse.json(cached)
 
@@ -125,19 +125,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return (b.insights?.spend || 0) - (a.insights?.spend || 0)
     })
 
-    const result = {
-      campaigns: visible,
-      period,
-      name: accountName,
-      _debug: {
-        campListCount: campList.length,
-        insightRowsCount: insightRows.length,
-        insightsStatus: insightsRes.status,
-        campListStatus: campListRes.status,
-        insightsError: insightsRes.status === 'rejected' ? String((insightsRes as PromiseRejectedResult).reason) : null,
-        campListError: campListRes.status === 'rejected' ? String((campListRes as PromiseRejectedResult).reason) : null,
-      },
-    }
+    const result = { campaigns: visible, period, name: accountName }
 
     if (visible.length > 0) await setCached(cacheKey, result, period, since, until)
     return NextResponse.json(result)
