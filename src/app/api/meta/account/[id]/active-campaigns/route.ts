@@ -6,10 +6,7 @@ import {
 } from '@/lib/meta-shared'
 import { getCached, setCached } from '@/lib/meta-cache'
 
-type Campaign = {
-  id: string; name: string; objective: string
-  effective_status: string; daily_budget?: string; lifetime_budget?: string
-}
+const CAMPAIGN_FIELDS = 'id,name,status,effective_status,objective,daily_budget,lifetime_budget'
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -22,49 +19,87 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const until = searchParams.get('until')
   const tp = buildTimeParams(period, since, until)
 
-  // Cache check
-  const cacheKey = `act:${accountId}:campaigns:${period}:${since ?? ''}:${until ?? ''}`
+  const cacheKey = `act2:${accountId}:campaigns:${period}:${since ?? ''}:${until ?? ''}`
   const cached = await getCached(cacheKey)
   if (cached) return NextResponse.json(cached)
 
   try {
-    const [nameResult, campResult] = await Promise.allSettled([
+    // Fetch in parallel:
+    // 1. Account name
+    // 2. Campaign-level insights for the period (catches ALL campaigns with spend, regardless of status)
+    // 3. Currently ACTIVE/PAUSED campaigns (to show zero-spend campaigns for current periods)
+    const [nameRes, insightsRes, activeRes] = await Promise.allSettled([
       metaGet(`/${accountId}`, { fields: 'name' }),
+      metaGet(`/${accountId}/insights`, {
+        fields: `campaign_id,campaign_name,${AD_FIELDS}`,
+        level: 'campaign',
+        limit: '200',
+        ...tp,
+      }),
       metaGet(`/${accountId}/campaigns`, {
-        fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
-        filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED', 'ARCHIVED', 'CAMPAIGN_PAUSED', 'WITH_ISSUES', 'IN_PROCESS'] }]),
+        fields: CAMPAIGN_FIELDS,
+        filtering: JSON.stringify([
+          { field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED'] },
+        ]),
         limit: '200',
       }),
     ])
 
     const accountName =
-      nameResult.status === 'fulfilled' ? (nameResult.value.name as string || accountId) : accountId
+      nameRes.status === 'fulfilled' ? (nameRes.value.name as string || accountId) : accountId
 
-    let campaigns: Campaign[] = []
-    if (campResult.status === 'fulfilled') {
-      campaigns = (campResult.value.data || []) as Campaign[]
-    }
-    if (campaigns.length === 0) {
-      try {
-        const fb = await metaGet(`/${accountId}/campaigns`, {
-          fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
-          limit: '200',
-        })
-        campaigns = (fb.data || []) as Campaign[]
-      } catch { campaigns = [] }
+    // Build insight map from campaign-level insights (spend data per campaign for the period)
+    type InsightRow = Record<string, unknown>
+    const insightRows: InsightRow[] = insightsRes.status === 'fulfilled'
+      ? (insightsRes.value.data || []) : []
+
+    const insightMap = new Map<string, ReturnType<typeof processInsights>>()
+    const insightNames = new Map<string, string>()
+    for (const row of insightRows) {
+      const cid = row.campaign_id as string
+      insightMap.set(cid, processInsights(row))
+      insightNames.set(cid, row.campaign_name as string || cid)
     }
 
-    // Fetch insights per campaign — 3 concurrent, retry on failure
-    const enriched = await concurrentMap(campaigns, async (c) => {
-      try {
-        const ins = await withRetry(() => metaGet(`/${c.id}/insights`, { fields: AD_FIELDS, ...tp }))
-        return { ...c, insights: processInsights(ins.data?.[0]), adsets: [] }
-      } catch {
-        return { ...c, insights: null, adsets: [] }
+    // Build campaign metadata map from active campaigns list
+    type CampaignMeta = { id: string; name: string; objective: string; effective_status: string; daily_budget?: string; lifetime_budget?: string }
+    const activeCamps: CampaignMeta[] = activeRes.status === 'fulfilled'
+      ? (activeRes.value.data || []) : []
+    const metaMap = new Map<string, CampaignMeta>()
+    for (const c of activeCamps) metaMap.set(c.id, c)
+
+    // Collect all campaign IDs: from insights (historical spend) + active list
+    const allIds = new Set([...insightMap.keys(), ...metaMap.keys()])
+
+    // For ACTIVE campaigns not in insights, fetch insights individually
+    const idsNeedingInsights = [...metaMap.keys()].filter(id => !insightMap.has(id))
+    if (idsNeedingInsights.length > 0) {
+      await concurrentMap(idsNeedingInsights, async (cid) => {
+        try {
+          const ins = await withRetry(() => metaGet(`/${cid}/insights`, { fields: AD_FIELDS, ...tp }))
+          insightMap.set(cid, processInsights(ins.data?.[0]))
+        } catch { /* no insights for this campaign in this period */ }
+      })
+    }
+
+    // Build enriched campaign list
+    const enriched = [...allIds].map(cid => {
+      const meta = metaMap.get(cid)
+      const name = meta?.name || insightNames.get(cid) || cid
+      const effective_status = meta?.effective_status || 'ARCHIVED'
+      return {
+        id: cid,
+        name,
+        objective: meta?.objective || '',
+        effective_status,
+        daily_budget: meta?.daily_budget,
+        lifetime_budget: meta?.lifetime_budget,
+        insights: insightMap.get(cid) || null,
+        adsets: [],
       }
     })
 
-    // ACTIVE always visible; PAUSED only if had spend in period
+    // Show: ACTIVE campaigns always + any campaign with spend in the period
     const visible = enriched.filter(c =>
       c.effective_status === 'ACTIVE' || (c.insights?.spend || 0) > 0
     )
