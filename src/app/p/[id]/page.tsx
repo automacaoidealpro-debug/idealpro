@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 import { TrendingUp, Users, ShoppingCart, MessageCircle, RefreshCw } from 'lucide-react'
 
 function fmtC(n: number) {
@@ -38,7 +39,8 @@ function generateNarrative(d: PublicData): string {
   return `Neste mês, suas campanhas geraram ${fmt(d.leads)} lead${d.leads !== 1 ? 's' : ''} com investimento de ${fmtC(d.spend)}.${cpl}`
 }
 
-export default function PublicDashboardPage({ params }: { params: { id: string } }) {
+export default function PublicDashboardPage() {
+  const { id } = useParams<{ id: string }>()
   const [data, setData] = useState<PublicData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -50,7 +52,7 @@ export default function PublicDashboardPage({ params }: { params: { id: string }
         const res = await fetch(`/api/meta/report?period=this_month`)
         const json = await res.json()
         if (json.error) throw new Error(json.error)
-        const row = (json.rows || []).find((r: { id: string }) => r.id === params.id || r.id === `act_${params.id}`)
+        const row = (json.rows || []).find((r: { id: string }) => r.id === id || r.id === `act_${id}`)
         if (!row) throw new Error('Conta não encontrada')
         setData(row as PublicData)
       } catch (e) {
@@ -60,7 +62,7 @@ export default function PublicDashboardPage({ params }: { params: { id: string }
       }
     }
     load()
-  }, [params.id])
+  }, [id])
 
   if (loading) {
     return (

@@ -237,44 +237,6 @@ const GENDER_LABELS: Record<string, string> = {
   male: 'Masculino', female: 'Feminino', unknown: 'Desconhecido',
 }
 
-// ─── Campaigns ───────────────────────────────────────────────────────────────
-async function getCampaigns(accountId: string, timeParams: Record<string, string>) {
-  try {
-    const data = await metaFetch(`/${accountId}/campaigns`, {
-      fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
-      limit: '100',
-    })
-    const campaigns = data.data || []
-    const withInsights = await Promise.all(
-      campaigns.map(async (c: { id: string; effective_status: string }) => {
-        if (c.effective_status !== 'ACTIVE')
-          return { ...c, spend: 0, results: 0, costPerResult: 0, impressions: 0, ctr: 0, cpp: 0 }
-        try {
-          const ins = await metaFetch(`/${c.id}/insights`, {
-            fields: 'spend,actions,impressions,ctr,cpp,cost_per_action_type',
-            ...timeParams,
-          })
-          const d = ins.data?.[0]
-          return {
-            ...c,
-            spend: parseFloat(d?.spend || '0'),
-            results: getBestResult(d?.actions).value,
-            costPerResult: getCostPerResult(d?.cost_per_action_type),
-            impressions: parseInt(d?.impressions || '0'),
-            ctr: parseFloat(d?.ctr || '0'),
-            cpp: parseFloat(d?.cpp || '0'),
-          }
-        } catch {
-          return { ...c, spend: 0, results: 0, costPerResult: 0, impressions: 0, ctr: 0, cpp: 0 }
-        }
-      })
-    )
-    return withInsights
-  } catch {
-    return []
-  }
-}
-
 // ─── Handler ─────────────────────────────────────────────────────────────────
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -299,7 +261,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const [
     todayData, weekData, selectedData,
     genderData, ageData, platformData, positionData,
-    regionData, hourlyData, dailyData, campaignsData,
+    regionData, hourlyData, dailyData,
   ] = await Promise.allSettled([
     getInsights(accountId, todayParams),
     getInsights(accountId, weekParams),
@@ -314,7 +276,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       breakdowns: 'hourly_stats_aggregated_by_advertiser_time_zone',
     }),
     getInsights(accountId, dailyParams),
-    getCampaigns(accountId, timeParams),
   ])
 
   const safe = <T>(r: PromiseSettledResult<T>, fallback: T): T =>
@@ -370,6 +331,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     byHour: hourlyRows,
     byDayOfWeek: aggregateByDayOfWeek(dailyRows),
     byWeekOfMonth: aggregateByWeekOfMonth(dailyRows),
-    campaigns: safe(campaignsData, []),
   })
 }

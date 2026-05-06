@@ -1,9 +1,15 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Lazy init — prevents crash at module load when env vars are absent (e.g. local dev without Supabase)
+let _client: SupabaseClient | null = null
+
+function getClient(): SupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return null
+  if (!_client) _client = createClient(url, key)
+  return _client
+}
 
 function ttlMinutes(period: string, since?: string | null, until?: string | null): number {
   const today = new Date().toISOString().split('T')[0]
@@ -21,6 +27,8 @@ function ttlMinutes(period: string, since?: string | null, until?: string | null
 }
 
 export async function getCached<T>(key: string): Promise<T | null> {
+  const supabase = getClient()
+  if (!supabase) return null
   try {
     const { data, error } = await supabase
       .from('meta_cache')
@@ -40,6 +48,8 @@ export async function setCached(
   since?: string | null,
   until?: string | null
 ): Promise<void> {
+  const supabase = getClient()
+  if (!supabase) return
   try {
     const mins = ttlMinutes(period, since, until)
     const expires_at = new Date(Date.now() + mins * 60 * 1000).toISOString()
