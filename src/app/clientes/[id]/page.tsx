@@ -49,9 +49,10 @@ interface AccountData {
 }
 
 const RESULT_PRIORITY = [
-  'purchase','omni_purchase',
+  'purchase', 'omni_purchase',
+  'lead', 'complete_registration',
   'onsite_conversion.messaging_conversation_started_7d',
-  'lead','complete_registration',
+  'onsite_conversion.messaging_first_reply',
 ]
 
 function getResultValue(ins: Insights | null | undefined) {

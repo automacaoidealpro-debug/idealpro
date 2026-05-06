@@ -32,7 +32,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       metaGet(`/${accountId}`, { fields: 'name' }),
       metaGet(`/${accountId}/campaigns`, {
         fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
-        filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED'] }]),
+        filtering: JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED', 'ARCHIVED', 'CAMPAIGN_PAUSED', 'WITH_ISSUES', 'IN_PROCESS'] }]),
         limit: '200',
       }),
     ])
@@ -43,14 +43,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     let campaigns: Campaign[] = []
     if (campResult.status === 'fulfilled') {
       campaigns = (campResult.value.data || []) as Campaign[]
-    } else {
+    }
+    if (campaigns.length === 0) {
       try {
         const fb = await metaGet(`/${accountId}/campaigns`, {
           fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',
           limit: '200',
         })
-        campaigns = ((fb.data || []) as Campaign[]).filter(c =>
-          c.effective_status === 'ACTIVE' || c.effective_status === 'PAUSED')
+        campaigns = (fb.data || []) as Campaign[]
       } catch { campaigns = [] }
     }
 
