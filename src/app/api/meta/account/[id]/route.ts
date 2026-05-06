@@ -60,7 +60,6 @@ async function getInsights(
 // ─── Action helpers ──────────────────────────────────────────────────────────
 type ActionList = { action_type: string; value: string }[]
 
-// Strict priority — link_click excluded (volume, not conversion)
 const RESULT_TYPES = new Set([
   'purchase', 'omni_purchase',
   'lead', 'complete_registration', 'submit_application',
@@ -92,11 +91,12 @@ function getCostPerResult(cpa?: ActionList, resultType?: string): number {
 function detectResultType(actions?: ActionList): string {
   if (!actions) return 'Resultados'
   const { type } = getBestResult(actions)
-  if (type === 'purchase') return 'Compras'
-  if (type.includes('conversation') || type.includes('messaging')) return 'Conversas iniciadas'
-  if (type.includes('first_reply')) return 'Primeiras respostas'
-  if (type === 'lead') return 'Leads'
+  if (type === 'purchase' || type === 'omni_purchase') return 'Compras'
+  if (type === 'lead' || type === 'submit_application') return 'Leads'
   if (type === 'complete_registration') return 'Cadastros'
+  if (type === 'contact') return 'Contatos'
+  if (type.includes('first_reply')) return 'Primeiras respostas'
+  if (type.includes('conversation') || type.includes('messaging')) return 'Conversas iniciadas'
   return 'Resultados'
 }
 
@@ -184,8 +184,7 @@ function mapBreakdownRows(
       clicks: parseInt(r.clicks || '0'),
       ctr: parseFloat(r.ctr || '0'),
       cpp: parseFloat(r.cpp || '0'),
-      results: getBestResult(r.actions).value,
-      costPerResult: getCostPerResult(r.cost_per_action_type, getBestResult(r.actions).type),
+      ...(() => { const { type, value } = getBestResult(r.actions); return { results: value, costPerResult: getCostPerResult(r.cost_per_action_type, type) } })(),
     }
   })
 }

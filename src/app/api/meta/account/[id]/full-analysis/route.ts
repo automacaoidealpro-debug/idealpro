@@ -78,24 +78,30 @@ function getConversionBreakdown(actions: ActionList | undefined) {
   const conversations = sumActions(actions, CONVERSATION_TYPES)
   const leads = sumActions(actions, LEAD_TYPES)
   const total = purchases + conversations + leads
+  // Use highest volume as primary type (works for lead gen AND messaging campaigns)
   let primaryType = ''
-  if (purchases > 0) primaryType = 'purchase'
+  if (purchases > 0 && purchases >= leads && purchases >= conversations) primaryType = 'purchase'
+  else if (leads > 0 && leads >= conversations) primaryType = 'lead'
   else if (conversations > 0) primaryType = 'conversation'
-  else if (leads > 0) primaryType = 'lead'
   return { purchases, conversations, leads, total, primaryType }
 }
 
 function getBest(actions?: ActionList): { type: string; value: number } {
   if (!actions) return { type: '', value: 0 }
+  let best = { type: '', value: 0 }
   for (const t of RESULT_PRIORITY) {
     const f = actions.find(a => a.action_type === t)
-    if (f && parseInt(f.value) > 0) return { type: t, value: parseInt(f.value) }
+    if (f) { const val = parseInt(f.value); if (val > best.value) best = { type: t, value: val } }
   }
-  return { type: '', value: 0 }
+  return best
 }
 
-function getCpr(cpa?: ActionList): number {
+function getCpr(cpa?: ActionList, resultType?: string): number {
   if (!cpa) return 0
+  if (resultType) {
+    const v = parseFloat(cpa.find(a => a.action_type === resultType)?.value || '0')
+    if (v > 0) return v
+  }
   for (const t of RESULT_PRIORITY) {
     const v = parseFloat(cpa.find(a => a.action_type === t)?.value || '0')
     if (v > 0) return v
@@ -134,7 +140,7 @@ function processInsights(d: Record<string, unknown> | undefined) {
     initiateCheckout: getAction(actions, 'initiate_checkout'),
     results,
     resultType,
-    costPerResult: getCpr(cpa),
+    costPerResult: getCpr(cpa, resultType),
     purchaseValue,
     roas: purchaseValue > 0 && spend > 0 ? purchaseValue / spend : 0,
     messaging_conversations: getAction(actions, 'onsite_conversion.messaging_conversation_started_7d'),
@@ -159,7 +165,7 @@ function processBreakdown(rows: Record<string, unknown>[] | undefined, segmentKe
       reach: parseInt(r.reach as string || '0'),
       results: conv.total > 0 ? conv.total : results,
       resultType: conv.primaryType || resultType,
-      costPerResult: getCpr(cpa),
+      costPerResult: getCpr(cpa, resultType),
       leads: conv.leads,
       purchases: conv.purchases,
       conversations: conv.conversations,
