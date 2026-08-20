@@ -9,7 +9,7 @@ import { getCached, setCached } from '@/lib/meta-cache'
 const CAMPAIGN_FIELDS = 'id,name,status,effective_status,objective,daily_budget,lifetime_budget'
 
 // Simpler fields for campaign-level discovery (no video fields that may be unsupported at campaign level)
-const CAMPAIGN_LEVEL_FIELDS = 'campaign_id,campaign_name,spend,impressions,clicks,ctr,cpp,reach,frequency,inline_link_clicks,actions,cost_per_action_type'
+const CAMPAIGN_LEVEL_FIELDS = 'campaign_id,campaign_name,spend,impressions,clicks,ctr,cpm,cpp,reach,frequency,inline_link_clicks,actions,cost_per_action_type'
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
