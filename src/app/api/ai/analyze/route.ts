@@ -63,12 +63,13 @@ interface FullData {
 function toAdInsightsFull(ins: FullInsights): AdInsightsFull {
   return {
     spend: ins.spend, impressions: ins.impressions, clicks: ins.clicks,
-    ctr: ins.ctr, cpp: ins.cpp, reach: ins.reach, frequency: ins.frequency,
-    linkClicks: ins.linkClicks, hookRate: ins.hookRate, videoView3s: ins.videoView3s,
-    thruplayCount: ins.thruplayCount, addToCart: ins.addToCart,
-    profileVisits: ins.profileVisits, postEngagement: ins.postEngagement,
-    initiateCheckout: ins.initiateCheckout, results: ins.results,
-    resultType: ins.resultType, costPerResult: ins.costPerResult,
+    ctr: ins.ctr, cpm: 0, cpp: ins.cpp, reach: ins.reach, frequency: ins.frequency,
+    linkClicks: ins.linkClicks, outboundClicks: 0, hookRate: ins.hookRate,
+    videoView3s: ins.videoView3s, thruplayCount: ins.thruplayCount,
+    addToCart: ins.addToCart, profileVisits: ins.profileVisits,
+    postEngagement: ins.postEngagement, initiateCheckout: ins.initiateCheckout,
+    messages: 0, clickToMessage: 0, reachToMessage: 0,
+    results: ins.results, resultType: ins.resultType, costPerResult: ins.costPerResult,
   }
 }
 

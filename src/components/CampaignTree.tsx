@@ -17,6 +17,7 @@ function Pill({
     blue: 'bg-blue-100 text-blue-700',
     purple: 'bg-purple-100 text-purple-700',
     orange: 'bg-orange-100 text-orange-700',
+    teal: 'bg-teal-100 text-teal-700',
   }
   return (
     <span className={cn('inline-flex flex-col items-center px-2.5 py-1 rounded-lg text-[10px] leading-tight min-w-[60px]', colors[color] || colors.gray)}>
@@ -26,11 +27,49 @@ function Pill({
   )
 }
 
+// ─── Color helpers (corrected thresholds per brief) ───────────────────────────
 function hookColor(v: number) { return v >= 30 ? 'green' : v >= 15 ? 'yellow' : v > 0 ? 'red' : 'gray' }
-function ctrColor(v: number) { return v >= 2 ? 'green' : v >= 1 ? 'yellow' : v > 0 ? 'red' : 'gray' }
-function cppColor(v: number) { return v <= 0 ? 'gray' : v < 30 ? 'green' : v < 80 ? 'yellow' : 'red' }
+// Brief: ≥1% bom, 0.8-1% atenção, <0.8% crítico
+function ctrColor(v: number) { return v >= 1 ? 'green' : v >= 0.8 ? 'yellow' : v > 0 ? 'red' : 'gray' }
 function cprColor(v: number) { return v <= 0 ? 'gray' : v < 30 ? 'green' : v < 100 ? 'yellow' : 'red' }
+// CPM: ≤R$15 bom, R$15-R$30 atenção, >R$30 crítico
+function cpmColor(v: number) { return v <= 0 ? 'gray' : v <= 15 ? 'green' : v <= 30 ? 'yellow' : 'red' }
+// Taxa Cliques→Msg: ≥40% bom, 30-40% atenção, <30% crítico
+function c2mColor(v: number) { return v >= 40 ? 'green' : v >= 30 ? 'yellow' : v > 0 ? 'red' : 'gray' }
+// Taxa Alcance→Msg: ≥0.5% bom, 0.3-0.5% atenção, <0.3% crítico
+function r2mColor(v: number) { return v >= 0.5 ? 'green' : v >= 0.3 ? 'yellow' : v > 0 ? 'red' : 'gray' }
 
+// ─── Automatic diagnosis ──────────────────────────────────────────────────────
+function getDiagnosis(ins: AdInsightsFull): { dot: string; text: string } | null {
+  if (ins.spend < 20 || ins.impressions < 500) return null
+
+  const { ctr, cpm, clickToMessage, reachToMessage, messages, results, linkClicks, reach } = ins
+
+  // CTR baixo + CPM alto → criativo sem atratividade
+  if (ctr < 0.8 && cpm > 30) {
+    return { dot: '🔴', text: 'CTR baixo + CPM alto: criativo sem atratividade' }
+  }
+  // CTR bom + cliques→msg baixo → destino não converte
+  if (ctr >= 1 && messages > 0 && linkClicks > 10 && clickToMessage < 30) {
+    return { dot: '🔴', text: 'Criativo atrai mas WA não converte — revisar saudação/resposta' }
+  }
+  // CTR bom + alcance→msg baixo → oferta sem intenção
+  if (ctr >= 1 && messages > 0 && reach > 3000 && reachToMessage < 0.3) {
+    return { dot: '🟡', text: 'Alcance bom mas oferta não gera intenção suficiente' }
+  }
+  // Tudo positivo → escalar
+  if (ctr >= 1 && results > 0 && (messages === 0 || clickToMessage >= 40) && cpm <= 30) {
+    return { dot: '🟢', text: 'Campanha saudável — considere escalar gradualmente' }
+  }
+  // CTR bom, sem resultados ainda
+  if (ctr >= 1 && results === 0 && ins.spend < 50) {
+    return { dot: '🟡', text: 'CTR saudável — aguardar mais dados antes de decidir' }
+  }
+
+  return null
+}
+
+// ─── InsightPills ─────────────────────────────────────────────────────────────
 interface InsightPillsProps {
   ins: AdInsightsFull
   resultLabel: string
@@ -38,30 +77,85 @@ interface InsightPillsProps {
 }
 
 function InsightPills({ ins, resultLabel, level }: InsightPillsProps) {
+  const diagnosis = getDiagnosis(ins)
+
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <Pill label="Gasto" value={formatCurrency(ins.spend)} />
-      <Pill label="Impressões" value={formatNumber(ins.impressions)} />
-      <Pill label="CTR" value={ins.ctr > 0 ? `${ins.ctr.toFixed(2)}%` : '—'} color={ctrColor(ins.ctr)} />
-      {ins.hookRate > 0 && (
-        <Pill label="Hook Rate" value={`${ins.hookRate.toFixed(1)}%`} color={hookColor(ins.hookRate)} />
-      )}
-      <Pill label="Clique link" value={ins.linkClicks > 0 ? formatNumber(ins.linkClicks) : '—'} color="blue" />
-      {ins.addToCart > 0 && (
-        <Pill label="Carrinho" value={formatNumber(ins.addToCart)} color="orange" />
-      )}
-      {ins.profileVisits > 0 && (
-        <Pill label="Visita perfil" value={formatNumber(ins.profileVisits)} color="purple" />
-      )}
-      {ins.results > 0 && (
-        <Pill label={resultLabel} value={formatNumber(ins.results)} color="green" />
-      )}
-      {ins.costPerResult > 0 && (
-        <Pill label="Custo/result." value={formatCurrency(ins.costPerResult)} color={cprColor(ins.costPerResult)} />
-      )}
-      <Pill label="CPP" value={ins.cpp > 0 ? formatCurrency(ins.cpp) : '—'} color={cppColor(ins.cpp)} />
-      {level !== 'ad' && ins.frequency > 0 && (
-        <Pill label="Frequência" value={ins.frequency.toFixed(1)} color={ins.frequency > 3 ? 'red' : 'gray'} />
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Gasto + Impressões */}
+        <Pill label="Gasto" value={formatCurrency(ins.spend)} />
+        <Pill label="Impressões" value={formatNumber(ins.impressions)} />
+
+        {/* CTR com limiar correto do brief */}
+        <Pill label="CTR" value={ins.ctr > 0 ? `${ins.ctr.toFixed(2)}%` : '—'} color={ctrColor(ins.ctr)} />
+
+        {/* CPM — novo */}
+        {ins.cpm > 0 && (
+          <Pill label="CPM" value={formatCurrency(ins.cpm)} color={cpmColor(ins.cpm)} />
+        )}
+
+        {/* Hook Rate (vídeos) */}
+        {ins.hookRate > 0 && (
+          <Pill label="Hook Rate" value={`${ins.hookRate.toFixed(1)}%`} color={hookColor(ins.hookRate)} />
+        )}
+
+        {/* Cliques e link */}
+        <Pill label="Cliques" value={ins.clicks > 0 ? formatNumber(ins.clicks) : '—'} color="blue" />
+        {ins.linkClicks > 0 && (
+          <Pill label="Clique link" value={formatNumber(ins.linkClicks)} color="blue" />
+        )}
+
+        {/* Mensagens — novo */}
+        {ins.messages > 0 && (
+          <Pill label="Mensagens" value={formatNumber(ins.messages)} color="teal" />
+        )}
+
+        {/* Cliques → Mensagem — novo */}
+        {ins.clickToMessage > 0 && (
+          <Pill
+            label="Cliq→Msg"
+            value={`${ins.clickToMessage.toFixed(1)}%`}
+            color={c2mColor(ins.clickToMessage)}
+          />
+        )}
+
+        {/* Alcance → Mensagem — novo */}
+        {ins.reachToMessage > 0 && (
+          <Pill
+            label="Alc→Msg"
+            value={`${ins.reachToMessage.toFixed(2)}%`}
+            color={r2mColor(ins.reachToMessage)}
+          />
+        )}
+
+        {/* E-commerce extras */}
+        {ins.addToCart > 0 && (
+          <Pill label="Carrinho" value={formatNumber(ins.addToCart)} color="orange" />
+        )}
+        {ins.profileVisits > 0 && (
+          <Pill label="Visita perfil" value={formatNumber(ins.profileVisits)} color="purple" />
+        )}
+
+        {/* Resultados */}
+        {ins.results > 0 && (
+          <Pill label={resultLabel} value={formatNumber(ins.results)} color="green" />
+        )}
+        {ins.costPerResult > 0 && (
+          <Pill label="Custo/result." value={formatCurrency(ins.costPerResult)} color={cprColor(ins.costPerResult)} />
+        )}
+
+        {/* Frequência (não em anúncios) */}
+        {level !== 'ad' && ins.frequency > 0 && (
+          <Pill label="Frequência" value={ins.frequency.toFixed(1)} color={ins.frequency > 3 ? 'red' : 'gray'} />
+        )}
+      </div>
+
+      {/* Diagnóstico automático */}
+      {diagnosis && (
+        <div className="flex items-center gap-1.5 text-[10px] text-gray-500 italic">
+          <span>{diagnosis.dot}</span>
+          <span>{diagnosis.text}</span>
+        </div>
       )}
     </div>
   )
@@ -71,11 +165,11 @@ function InsightPills({ ins, resultLabel, level }: InsightPillsProps) {
 function getAdScore(ins: AdInsightsFull | null): number | null {
   if (!ins || ins.spend < 5) return null
   let pts = 0
-  // CTR score (0-4 pts)
+  // CTR score (0-4 pts) — thresholds per brief
   if (ins.ctr > 3) pts += 4
   else if (ins.ctr > 2) pts += 3
-  else if (ins.ctr > 1) pts += 2
-  else if (ins.ctr >= 0.5) pts += 1
+  else if (ins.ctr >= 1) pts += 2
+  else if (ins.ctr >= 0.8) pts += 1
   // Hook rate score (0-2 pts)
   if (ins.hookRate > 0) {
     if (ins.hookRate > 30) pts += 2
@@ -86,8 +180,10 @@ function getAdScore(ins: AdInsightsFull | null): number | null {
     pts += 2
     if (ins.costPerResult > 0 && ins.costPerResult < 50) pts += 1
   }
-  // Normalize: max raw = 9, scale to 0-10
-  return Math.min(10, Math.round((pts / 9) * 10))
+  // Messages bonus (+1 if good click→msg rate)
+  if (ins.clickToMessage >= 40) pts += 1
+  // Normalize: max raw = 10, scale to 0-10
+  return Math.min(10, Math.round((pts / 10) * 10))
 }
 
 function ScoreBadge({ score }: { score: number }) {
@@ -99,6 +195,15 @@ function ScoreBadge({ score }: { score: number }) {
       Score {score}/10
     </span>
   )
+}
+
+// ─── Status label helper ──────────────────────────────────────────────────────
+function statusLabel(s: string) {
+  if (s === 'ACTIVE') return 'Ativo'
+  if (s === 'PAUSED' || s === 'CAMPAIGN_PAUSED' || s === 'ADSET_PAUSED') return 'Pausado'
+  if (s === 'ARCHIVED') return 'Arquivado'
+  if (s === 'WITH_ISSUES') return 'Com erros'
+  return 'Pausado'
 }
 
 // ─── Ad row ──────────────────────────────────────────────────────────────────
@@ -132,7 +237,7 @@ function AdRow({ ad, resultLabel }: AdRowProps) {
           )} />
           <p className="text-xs font-semibold text-gray-800 truncate" title={ad.name}>{ad.name}</p>
           <span className="text-[10px] text-gray-400 flex-shrink-0">
-            {ad.effective_status === 'ACTIVE' ? 'Ativo' : 'Pausado'}
+            {statusLabel(ad.effective_status)}
           </span>
           {(() => { const s = getAdScore(ad.insights); return s !== null ? <ScoreBadge score={s} /> : null })()}
         </div>
@@ -181,7 +286,6 @@ function AdSetRow({ adset, resultLabel, period, since, until }: AdSetRowProps) {
     }
   }, [adset.id, period, since, until])
 
-  // When period/date changes: reset ads and re-fetch if the panel is open
   useEffect(() => {
     setAds(null)
     setLoadError(false)
@@ -215,6 +319,11 @@ function AdSetRow({ adset, resultLabel, period, since, until }: AdSetRowProps) {
             <p className="text-xs font-semibold text-indigo-700 truncate" title={adset.name}>
               {adset.name}
             </p>
+            {adset.effective_status !== 'ACTIVE' && (
+              <span className="text-[10px] text-gray-400 flex-shrink-0">
+                {statusLabel(adset.effective_status)}
+              </span>
+            )}
           </div>
           {adset.insights
             ? <InsightPills ins={adset.insights} resultLabel={resultLabel} level="adset" />
@@ -301,7 +410,6 @@ function CampaignCard({ campaign: c, resultLabel, period, since, until }: Campai
     }
   }, [c.id, period, since, until])
 
-  // Reset and re-fetch when period/date changes
   useEffect(() => {
     setAdsets(null)
     if (expandedRef.current) fetchAdsets()
@@ -342,7 +450,7 @@ function CampaignCard({ campaign: c, resultLabel, period, since, until }: Campai
             </span>
             {c.effective_status !== 'ACTIVE' && (
               <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
-                Pausada
+                {statusLabel(c.effective_status)}
               </span>
             )}
             {adsets !== null && (

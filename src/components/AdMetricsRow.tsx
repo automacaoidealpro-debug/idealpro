@@ -8,6 +8,7 @@ export interface AdInsights {
   clicks: number
   reach: number
   ctr: number
+  cpm: number
   cpp: number
   linkClicks: number
   outboundClicks: number
@@ -17,7 +18,12 @@ export interface AdInsights {
   profileVisits: number
   postEngagement: number
   addToCart: number
+  initiateCheckout: number
+  messages: number
+  clickToMessage: number
+  reachToMessage: number
   results: number
+  resultType: string
   costPerResult: number
 }
 
@@ -47,6 +53,14 @@ function Metric({
   )
 }
 
+// Thresholds per brief: ≥1% good, 0.8-1% attention, <0.8% critical
+function ctrColor(v: number) {
+  if (v >= 1) return 'text-green-600'
+  if (v >= 0.8) return 'text-yellow-600'
+  if (v > 0) return 'text-red-500'
+  return 'text-gray-300'
+}
+
 function hookColor(v: number) {
   if (v >= 30) return 'text-green-600'
   if (v >= 15) return 'text-yellow-600'
@@ -54,18 +68,34 @@ function hookColor(v: number) {
   return 'text-gray-300'
 }
 
-function ctrColor(v: number) {
-  if (v >= 2) return 'text-green-600'
-  if (v >= 1) return 'text-yellow-600'
+// CPM: ≤R$15 good, R$15-30 attention, >R$30 critical
+function cpmColor(v: number) {
+  if (v <= 0) return 'text-gray-300'
+  if (v <= 15) return 'text-green-600'
+  if (v <= 30) return 'text-yellow-600'
+  return 'text-red-500'
+}
+
+// Taxa Cliques→Msg: ≥40% good, 30-40% attention, <30% critical
+function c2mColor(v: number) {
+  if (v >= 40) return 'text-green-600'
+  if (v >= 30) return 'text-yellow-600'
   if (v > 0) return 'text-red-500'
   return 'text-gray-300'
 }
 
-function cppColor(v: number) {
-  if (v <= 0) return 'text-gray-300'
-  if (v < 30) return 'text-green-600'
-  if (v < 80) return 'text-yellow-600'
-  return 'text-red-500'
+// Taxa Alcance→Msg: ≥0.5% good, 0.3-0.5% attention, <0.3% critical
+function r2mColor(v: number) {
+  if (v >= 0.5) return 'text-green-600'
+  if (v >= 0.3) return 'text-yellow-600'
+  if (v > 0) return 'text-red-500'
+  return 'text-gray-300'
+}
+
+function statusLabel(s: string) {
+  if (s === 'ACTIVE') return '● Ativo'
+  if (s === 'ARCHIVED') return '○ Arquivado'
+  return '○ Pausado'
 }
 
 export function AdMetricsRow({
@@ -111,7 +141,7 @@ export function AdMetricsRow({
             isActive ? 'text-green-600' : 'text-gray-400'
           )}
         >
-          {isActive ? '● Ativo' : '○ Pausado'}
+          {statusLabel(status)}
         </span>
       </div>
 
@@ -122,12 +152,14 @@ export function AdMetricsRow({
           <div className="w-px h-6 bg-gray-200 mx-1" />
           <Metric label="Impressões" value={formatNumber(ins.impressions)} />
           <Metric label="CTR" value={ins.ctr > 0 ? `${ins.ctr.toFixed(2)}%` : '—'} color={ctrColor(ins.ctr)} />
+          <Metric label="CPM" value={ins.cpm > 0 ? formatCurrency(ins.cpm) : '—'} color={cpmColor(ins.cpm)} />
           <Metric
             label="Hook Rate"
             value={ins.hookRate > 0 ? `${ins.hookRate.toFixed(1)}%` : '—'}
             color={hookColor(ins.hookRate)}
           />
           <div className="w-px h-6 bg-gray-200 mx-1" />
+          <Metric label="Cliques" value={ins.clicks > 0 ? formatNumber(ins.clicks) : '—'} />
           <Metric
             label="Clique link"
             value={ins.linkClicks > 0 ? formatNumber(ins.linkClicks) : '—'}
@@ -136,6 +168,23 @@ export function AdMetricsRow({
             label="Saída site"
             value={ins.outboundClicks > 0 ? formatNumber(ins.outboundClicks) : '—'}
           />
+          {ins.messages > 0 && (
+            <Metric label="Mensagens" value={formatNumber(ins.messages)} color="text-teal-600" />
+          )}
+          {ins.clickToMessage > 0 && (
+            <Metric
+              label="Cliq→Msg"
+              value={`${ins.clickToMessage.toFixed(1)}%`}
+              color={c2mColor(ins.clickToMessage)}
+            />
+          )}
+          {ins.reachToMessage > 0 && (
+            <Metric
+              label="Alc→Msg"
+              value={`${ins.reachToMessage.toFixed(2)}%`}
+              color={r2mColor(ins.reachToMessage)}
+            />
+          )}
           {ins.profileVisits > 0 && (
             <Metric
               label="Visita perfil"
@@ -160,11 +209,6 @@ export function AdMetricsRow({
             label="Custo/result."
             value={ins.costPerResult > 0 ? formatCurrency(ins.costPerResult) : '—'}
             color={ins.costPerResult > 0 ? 'text-purple-700' : undefined}
-          />
-          <Metric
-            label="CPP"
-            value={ins.cpp > 0 ? formatCurrency(ins.cpp) : '—'}
-            color={cppColor(ins.cpp)}
           />
         </div>
       ) : (

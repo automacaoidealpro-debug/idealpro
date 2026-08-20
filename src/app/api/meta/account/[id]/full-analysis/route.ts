@@ -7,7 +7,7 @@ const INSIGHT_FIELDS = [
   'spend', 'impressions', 'clicks', 'ctr', 'cpp', 'cpm', 'reach', 'frequency',
   'inline_link_clicks',
   'actions', 'cost_per_action_type', 'action_values',
-  'video_30_sec_watched_actions', 'video_thruplay_watched_actions',
+  'video_p3s_watched_actions', 'video_30_sec_watched_actions', 'video_thruplay_watched_actions',
 ].join(',')
 
 const BREAKDOWN_FIELDS = 'spend,impressions,clicks,ctr,cpp,reach,actions,cost_per_action_type'
@@ -114,9 +114,10 @@ function processInsights(d: Record<string, unknown> | undefined) {
   const actions = d.actions as ActionList | undefined
   const cpa = d.cost_per_action_type as ActionList | undefined
   const thruplay = d.video_thruplay_watched_actions as ActionList | undefined
+  const p3s = d.video_p3s_watched_actions as ActionList | undefined
   const actionValues = d.action_values as ActionList | undefined
   const imp = parseInt(d.impressions as string || '0')
-  const videoView = getAction(actions, 'video_view')
+  const videoView = getAction(p3s, 'video_view')
   const spend = parseFloat(d.spend as string || '0')
   const { type: resultType, value: results } = getBest(actions)
   const purchaseValue = getAction(actionValues, 'purchase') || getAction(actionValues, 'omni_purchase')

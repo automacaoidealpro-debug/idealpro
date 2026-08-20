@@ -3,10 +3,12 @@ export interface AdInsightsFull {
   impressions: number
   clicks: number
   ctr: number
+  cpm: number
   cpp: number
   reach: number
   frequency: number
   linkClicks: number
+  outboundClicks: number
   hookRate: number
   videoView3s: number
   thruplayCount: number
@@ -14,6 +16,9 @@ export interface AdInsightsFull {
   profileVisits: number
   postEngagement: number
   initiateCheckout: number
+  messages: number
+  clickToMessage: number
+  reachToMessage: number
   results: number
   resultType: string
   costPerResult: number
@@ -137,6 +142,58 @@ export function generateOptimizations(campaigns: CampaignItem[]): Optimization[]
           entityId: c.id,
         })
       }
+
+      // Diagnóstico: CTR baixo + CPM alto → criativo sem atratividade
+      if (ci.ctr < 0.8 && ci.cpm > 30 && ci.impressions > 1000) {
+        opts.push({
+          priority: 'high',
+          type: 'creative',
+          icon: '🎯',
+          title: `Criativo sem atratividade`,
+          detail: `"${c.name}": CTR baixo (${ci.ctr.toFixed(2)}%) + CPM alto (${fmt(ci.cpm)}). O público não está reagindo ao anúncio. Reformular criativo, copy e oferta.`,
+          metrics: `CTR: ${ci.ctr.toFixed(2)}% | CPM: ${fmt(ci.cpm)} | Impressões: ${ci.impressions.toLocaleString('pt-BR')}`,
+          entityId: c.id,
+        })
+      }
+
+      // Diagnóstico: CTR bom + taxa cliques→msg baixa → WA/destino convertendo mal
+      if (ci.ctr >= 1 && ci.messages > 0 && ci.clickToMessage < 30 && ci.linkClicks > 20) {
+        opts.push({
+          priority: 'high',
+          type: 'audience',
+          icon: '📱',
+          title: `Criativo atrai, mas WA não converte`,
+          detail: `"${c.name}": CTR bom (${ci.ctr.toFixed(2)}%) mas apenas ${ci.clickToMessage.toFixed(1)}% dos cliques viram mensagens. Revisar abordagem do WhatsApp, saudação automática e velocidade de resposta.`,
+          metrics: `CTR: ${ci.ctr.toFixed(2)}% | Cliques→Msg: ${ci.clickToMessage.toFixed(1)}% | Mensagens: ${ci.messages}`,
+          entityId: c.id,
+        })
+      }
+
+      // Diagnóstico: CTR bom + alcance→msg baixo → oferta sem intenção
+      if (ci.ctr >= 1 && ci.messages > 0 && ci.reachToMessage < 0.3 && ci.reach > 5000) {
+        opts.push({
+          priority: 'medium',
+          type: 'creative',
+          icon: '💡',
+          title: `Alcance alto, oferta sem intenção`,
+          detail: `"${c.name}": Bom alcance mas apenas ${ci.reachToMessage.toFixed(2)}% do público converteu. A oferta não está gerando intenção suficiente. Revisar proposta de valor e urgência.`,
+          metrics: `Alcance→Msg: ${ci.reachToMessage.toFixed(2)}% | Alcance: ${ci.reach.toLocaleString('pt-BR')} | Mensagens: ${ci.messages}`,
+          entityId: c.id,
+        })
+      }
+
+      // Diagnóstico: tudo bom → escalar
+      if (ci.ctr >= 1 && ci.messages > 0 && ci.clickToMessage >= 40 && ci.cpm <= 30 && ci.results > 0) {
+        opts.push({
+          priority: 'low',
+          type: 'scale',
+          icon: '🚀',
+          title: `Campanha saudável — escalar`,
+          detail: `"${c.name}" com todos os indicadores positivos: CTR ${ci.ctr.toFixed(2)}%, Cliques→Msg ${ci.clickToMessage.toFixed(1)}%, CPM ${fmt(ci.cpm)}. Considere aumentar orçamento gradualmente (máx 20%/dia).`,
+          metrics: `CTR: ${ci.ctr.toFixed(2)}% | Cliques→Msg: ${ci.clickToMessage.toFixed(1)}% | CPM: ${fmt(ci.cpm)}`,
+          entityId: c.id,
+        })
+      }
     }
 
     // ── Ad set level checks ────────────────────────────────────────────────
@@ -171,15 +228,41 @@ export function generateOptimizations(campaigns: CampaignItem[]): Optimization[]
         })
       }
 
-      // Low CTR
+      // Low CTR (updated thresholds: <0.8% critical, <1% attention)
       if (si.ctr < 1 && si.spend > MIN_SPEND) {
         opts.push({
-          priority: si.ctr < 0.5 ? 'high' : 'medium',
+          priority: si.ctr < 0.8 ? 'high' : 'medium',
           type: si.hookRate > 15 ? 'audience' : 'creative',
           icon: '📉',
           title: `CTR baixo${si.hookRate > 15 ? ' — possível problema de público' : ' — criativo não engaja'}`,
-          detail: `Conjunto "${s.name}": CTR ${si.ctr.toFixed(2)}% abaixo do mínimo. ${si.hookRate > 15 ? 'Hook bom mas sem cliques — revisar copy, CTA e oferta.' : 'Reformular criativo completo.'}`,
+          detail: `Conjunto "${s.name}": CTR ${si.ctr.toFixed(2)}%${si.ctr < 0.8 ? ' (crítico)' : ' (atenção)'}. ${si.hookRate > 15 ? 'Hook bom mas sem cliques — revisar copy, CTA e oferta.' : 'Reformular criativo completo.'}`,
           metrics: `CTR: ${si.ctr.toFixed(2)}% | Hook: ${si.hookRate.toFixed(1)}% | Gasto: ${fmt(si.spend)}`,
+          entityId: s.id,
+        })
+      }
+
+      // CPM muito alto no conjunto
+      if (si.cpm > 50 && si.spend > MIN_SPEND) {
+        opts.push({
+          priority: 'medium',
+          type: 'audience',
+          icon: '💰',
+          title: `CPM alto — público saturado ou muito restrito`,
+          detail: `Conjunto "${s.name}" com CPM ${fmt(si.cpm)}. Público pode estar saturado ou muito pequeno. Ampliar segmentação ou testar novo público.`,
+          metrics: `CPM: ${fmt(si.cpm)} | Alcance: ${si.reach.toLocaleString('pt-BR')} | Frequência: ${si.frequency.toFixed(1)}`,
+          entityId: s.id,
+        })
+      }
+
+      // Cliques→Mensagem baixo no conjunto
+      if (si.messages > 0 && si.clickToMessage < 30 && si.linkClicks > 10) {
+        opts.push({
+          priority: 'medium',
+          type: 'creative',
+          icon: '📱',
+          title: `Taxa Cliques→Mensagem baixa no conjunto`,
+          detail: `Conjunto "${s.name}": apenas ${si.clickToMessage.toFixed(1)}% dos cliques resultam em mensagem. Revisar saudação automática e tempo de resposta no WhatsApp.`,
+          metrics: `Cliques: ${si.linkClicks} | Mensagens: ${si.messages} | Taxa: ${si.clickToMessage.toFixed(1)}%`,
           entityId: s.id,
         })
       }

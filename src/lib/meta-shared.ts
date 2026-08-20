@@ -3,9 +3,10 @@
 const BASE = 'https://graph.facebook.com/v20.0'
 
 export const AD_FIELDS = [
-  'spend', 'impressions', 'clicks', 'ctr', 'cpp', 'reach', 'frequency',
+  'spend', 'impressions', 'clicks', 'ctr', 'cpm', 'cpp', 'reach', 'frequency',
   'inline_link_clicks', 'outbound_clicks',
   'actions', 'cost_per_action_type',
+  'video_p3s_watched_actions',
   'video_30_sec_watched_actions',
   'video_thruplay_watched_actions',
 ].join(',')
@@ -108,24 +109,46 @@ export function getCpr(cpa?: ActionList, resultType?: string): number {
   return best
 }
 
+const MESSAGING_TYPES = [
+  'onsite_conversion.messaging_conversation_started_7d',
+  'onsite_conversion.messaging_first_reply',
+]
+
 export function processInsights(d: Record<string, unknown> | undefined) {
   if (!d) return null
   const actions = d.actions as ActionList | undefined
   const cpa = d.cost_per_action_type as ActionList | undefined
   const thruplay = d.video_thruplay_watched_actions as ActionList | undefined
+  const p3s = d.video_p3s_watched_actions as ActionList | undefined
   const imp = parseInt(d.impressions as string || '0')
-  const videoView3s = getAction(actions, 'video_view')
+  const clicks = parseInt(d.clicks as string || '0')
+  const reach = parseInt(d.reach as string || '0')
+  const videoView3s = getAction(p3s, 'video_view')
   const { type: resultType, value: results } = getBestResult(actions)
+
+  // Messaging conversations — take the highest among known messaging types
+  let messages = 0
+  for (const a of (actions || [])) {
+    if (MESSAGING_TYPES.includes(a.action_type)) {
+      messages = Math.max(messages, parseInt(a.value || '0'))
+    }
+  }
+
+  // Custom metrics — only meaningful when > 0
+  const linkClicks = parseInt(d.inline_link_clicks as string || '0')
+  const clickToMessage = linkClicks > 0 && messages > 0 ? (messages / linkClicks) * 100 : 0
+  const reachToMessage = reach > 0 && messages > 0 ? (messages / reach) * 100 : 0
 
   return {
     spend: parseFloat(d.spend as string || '0'),
     impressions: imp,
-    clicks: parseInt(d.clicks as string || '0'),
-    reach: parseInt(d.reach as string || '0'),
+    clicks,
+    reach,
     frequency: parseFloat(d.frequency as string || '0'),
     ctr: parseFloat(d.ctr as string || '0'),
+    cpm: parseFloat(d.cpm as string || '0'),
     cpp: parseFloat(d.cpp as string || '0'),
-    linkClicks: parseInt(d.inline_link_clicks as string || '0'),
+    linkClicks,
     outboundClicks: getAction(d.outbound_clicks as ActionList, 'outbound_click'),
     hookRate: imp > 0 && videoView3s > 0 ? (videoView3s / imp) * 100 : 0,
     videoView3s,
@@ -136,6 +159,9 @@ export function processInsights(d: Record<string, unknown> | undefined) {
       getAction(actions, 'instagram_profile_visit'),
     postEngagement: getAction(actions, 'post_engagement'),
     initiateCheckout: getAction(actions, 'initiate_checkout'),
+    messages,
+    clickToMessage,
+    reachToMessage,
     results,
     resultType,
     costPerResult: getCpr(cpa, resultType),

@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server'
-
-const BASE_URL = 'https://graph.facebook.com/v20.0'
-const TOKEN = process.env.META_ACCESS_TOKEN!
+import { metaGet, buildTimeParams } from '@/lib/meta-shared'
 
 // Fields that work with action-based breakdowns (gender, age, region, platform)
 const ACTION_FIELDS =
@@ -15,29 +13,6 @@ const VALID_PRESETS = new Set([
   'this_month', 'last_month', 'last_quarter',
 ])
 
-async function metaFetch(path: string, params: Record<string, string> = {}) {
-  const url = new URL(`${BASE_URL}${path}`)
-  url.searchParams.set('access_token', TOKEN)
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
-  const res = await fetch(url.toString(), { cache: 'no-store' })
-  const text = await res.text()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let j: any
-  try { j = JSON.parse(text) } catch {
-    throw new Error(`Meta API HTTP ${res.status}: resposta inválida. ${text.slice(0, 120)}`)
-  }
-  if (j?.error) throw new Error(j.error?.message || String(j.error))
-  return j
-}
-
-// Build time params — either date_preset or time_range
-function buildTimeParams(preset: string, since: string | null, until: string | null): Record<string, string> {
-  if (since && until) {
-    return { time_range: JSON.stringify({ since, until }) }
-  }
-  return { date_preset: preset }
-}
-
 async function getInsights(
   accountId: string,
   timeParams: Record<string, string>,
@@ -45,7 +20,7 @@ async function getInsights(
   fields = ACTION_FIELDS
 ) {
   try {
-    const data = await metaFetch(`/${accountId}/insights`, {
+    const data = await metaGet(`/${accountId}/insights`, {
       fields,
       level: 'account',
       ...timeParams,
